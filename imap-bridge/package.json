@@ -1,0 +1,22 @@
+{
+  "name": "lumimail-imap-bridge",
+  "version": "0.1.0",
+  "description": "IMAP/SMTP bridge for Lumimail email clients",
+  "license": "AGPL-3.0-or-later",
+  "author": "Le Viet Hong <vh3969@gmail.com>",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "imap-server": "^0.1.0",
+    "smtp-server": "^3.13.4",
+    "mailparser": "^3.7.1",
+    "nodemailer": "^6.9.14",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
