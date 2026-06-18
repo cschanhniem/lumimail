@@ -92,7 +92,7 @@
     "@types/react-dom": "^19.1.7",
     "@vitest/coverage-v8": "4.1.9",
     "drizzle-kit": "^0.31.10",
-    "eslint": "^10",
+    "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
