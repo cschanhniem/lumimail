@@ -36,12 +36,25 @@ wrangler login
 wrangler whoami
 ```
 
-Typical settings include:
+Copy the example configuration file (it does not exist by default after cloning):
+
+```bash
+cp wrangler.jsonc.example wrangler.jsonc
+```
+
+Update `wrangler.jsonc` with your specific settings, such as:
 
 - account_id
 - worker name
-- routes
+- D1 database ID and R2 bucket names
 - environment variables
+
+Now that Wrangler is authenticated and configured, store the Cloudflare API token
+you created earlier as a secret:
+
+```bash
+npx wrangler secret put CF_TOKEN
+```
 
 Verify configuration:
 
@@ -61,14 +74,25 @@ wrangler deploy --dry-run
 1. Open Email Routing in Cloudflare.
 2. Enable Email Routing.
 3. Add destination email addresses.
-4. Create routing rules.
+4. Create a routing rule that catches all (or specific) inbound emails and routes
+   them to your deployed Lumimail Worker (not a plain destination address).
 5. Verify email delivery.
 
 ## Deploy
 
+`npm run deploy` applies the remote D1 database migrations
+(`wrangler d1 migrations apply DB --remote`), then builds and deploys the Worker,
+so your production database gets its tables on the first deploy:
+
 ```bash
 npm install
 npm run deploy
+```
+
+To run the database migration on its own first, you can:
+
+```bash
+npx wrangler d1 migrations apply DB --remote
 ```
 
 ## Verify Deployment
