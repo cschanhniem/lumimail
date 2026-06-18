@@ -21,6 +21,10 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		globals: true,
+		// Some unit tests exercise bcrypt hashing in tight loops (see
+		// tests/unit/lib/api-keys.test.ts). bcrypt.hashSync at cost 10 is ~100ms
+		// per call, so batches can exceed the 5s default on slower CI runners.
+		testTimeout: 30000,
 		include: ["tests/unit/**/*.test.ts", "tests/unit/**/*.test.tsx"],
 		exclude: ["tests/e2e/**", "node_modules/**"],
 		setupFiles: [],
