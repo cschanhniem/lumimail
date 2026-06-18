@@ -394,7 +394,7 @@ describe("storeRawToR2", () => {
 
 		expect(key).toMatch(/^inbound\/\d+-raw_id\.eml$/);
 		expect(put).toHaveBeenCalledTimes(1);
-		const [putKey, , opts] = put.mock.calls[0];
+		const [putKey, , opts] = put.mock.calls[0] as unknown as [string, unknown, Record<string, unknown>];
 		expect(putKey).toBe(key);
 		expect(opts).toEqual({
 			httpMetadata: { contentType: "message/rfc822" },
@@ -420,12 +420,12 @@ describe("getMessageWithBody", () => {
 		mock
 			.queueSelect([{ id: "msg_1", userId: "u1", fromAddr: "f@x.com", toAddr: "t@y.com" }])
 			.queueSelect([{ id: "body_1", messageId: "msg_1", textBody: "t" }]);
-		getMessageContactNames.mockResolvedValue({ fromName: "F", toName: "T" });
+		getMessageContactNames.mockResolvedValue({ fromContactName: "F", toContactName: "T" });
 
 		const result = await getMessageWithBody(env, "u1", "msg_1");
 		expect(getMessageContactNames).toHaveBeenCalledWith(env, "u1", "f@x.com", "t@y.com");
 		expect(result).toEqual({
-			message: { id: "msg_1", userId: "u1", fromAddr: "f@x.com", toAddr: "t@y.com", fromName: "F", toName: "T" },
+			message: { id: "msg_1", userId: "u1", fromAddr: "f@x.com", toAddr: "t@y.com", fromContactName: "F", toContactName: "T" },
 			body: { id: "body_1", messageId: "msg_1", textBody: "t" },
 		});
 	});
