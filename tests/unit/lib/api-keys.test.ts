@@ -24,15 +24,17 @@ describe("generateApiKey", () => {
 		expect(verifyApiKey(result.fullKey, result.hash)).toBe(true);
 	});
 
+	// generateApiKey() computes a bcrypt hash per call, so 50 iterations can
+	// exceed the default 5s timeout on slower CI runners. Allow extra headroom.
 	it("generates unique keys across calls", () => {
 		const keys = new Set(Array.from({ length: 50 }, () => generateApiKey().fullKey));
 		expect(keys.size).toBe(50);
-	});
+	}, 30000);
 
 	it("generates unique prefixes across calls", () => {
 		const prefixes = new Set(Array.from({ length: 50 }, () => generateApiKey().prefix));
 		expect(prefixes.size).toBeGreaterThan(1);
-	});
+	}, 30000);
 });
 
 describe("verifyApiKey", () => {
