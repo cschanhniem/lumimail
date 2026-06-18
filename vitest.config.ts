@@ -71,6 +71,13 @@ export default defineConfig({
 				"src/lib/email/inbound.ts",
 				"src/app/api/api-keys/route.ts",
 				"src/lib/cloudflare-api.ts",
+				"src/app/api/domains/route.ts",
+				"src/app/api/domains/[id]/route.ts",
+				"src/app/api/domains/[id]/dns/route.ts",
+				"src/app/api/mailboxes/route.ts",
+				"src/app/api/mailboxes/[id]/route.ts",
+				"src/app/api/aliases/route.ts",
+				"src/app/api/aliases/[id]/route.ts",
 			],
 			thresholds: {
 				lines: 100,

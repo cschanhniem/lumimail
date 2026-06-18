@@ -39,6 +39,17 @@ describe("cfRequest (via public functions)", () => {
 		await expect(disableEmailRouting(env, "z1")).rejects.toThrow(/Cloudflare API 403.*Verify CF_TOKEN/s);
 	});
 
+	it("throws using the status text when the failure has no errors array", async () => {
+		fetchMock.mockResolvedValue({
+			status: 500,
+			statusText: "Server Error",
+			json: async () => ({ success: false }),
+		} as unknown as Response);
+		await expect(disableEmailRouting(env, "z1")).rejects.toThrow(
+			"Cloudflare API 500 on /zones/z1/email/routing/dns: Server Error",
+		);
+	});
+
 	it("returns the result on success and targets the v4 API", async () => {
 		fetchMock.mockResolvedValue(ok({ done: true }));
 		await disableEmailRouting(env, "z1");
