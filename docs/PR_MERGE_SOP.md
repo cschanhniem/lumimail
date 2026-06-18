@@ -18,7 +18,7 @@ the deviation is explicitly approved by the requester and recorded in the PR.
    lifecycle scripts (`preinstall`/`install`/`postinstall`) and the
    transitive dependency tree run arbitrary code on your machine. That is the
    primary **supply-chain poisoning** vector. Review by **reading** code and
-   tests; let **CI** (sandboxed) do the running. See §3 and §5.
+   tests; let **CI** (sandboxed) do the running. See §4 and §6.
 2. **Read the actual diff, not just the PR description.** The description is the
    author's claim; the diff is the truth. Verify claims ("100% coverage", "no
    new deps", "behavior unchanged") against the diff and against CI.
@@ -29,6 +29,10 @@ the deviation is explicitly approved by the requester and recorded in the PR.
    tenancy, email send/receive, sanitization, secrets, or dependencies.
 5. **Faithful reporting.** If CI didn't run, say so. If you reviewed by reading
    only, say so. Never claim verification you didn't perform.
+6. **Read the existing reviews first — including the bots.** Other reviewers
+   (human and automated: Gemini, CodeRabbit, Socket, …) may have already found
+   the issue. Enumerate and resolve their feedback before forming your own
+   verdict; treat `security-high`/`high` findings as blockers. See §2.
 
 ---
 
@@ -41,9 +45,44 @@ gh pr view <N> --json title,body,isDraft,mergeable,mergeStateStatus,reviewDecisi
 
 - [ ] Understand **what** and **why** from the body, then map it to the files.
 - [ ] Note `isDraft`, `mergeable`, `mergeStateStatus`, and which checks exist.
-- [ ] Flag the high-risk surfaces this PR touches (see §2 checklist headers).
+- [ ] Flag the high-risk surfaces this PR touches (see §3 checklist headers).
 
-## 2. Security review (MUST, read-only)
+## 2. Existing reviews & comments (MUST — humans + bots)
+
+Before forming your own verdict, read **every** review and comment already on the
+PR — from human reviewers **and** automated agents (Gemini Code Assist,
+CodeRabbit, Socket Security, Dependabot, etc.). Someone may have already found the
+bug, the security hole, or the dead code. Do not merge with unresolved feedback.
+
+```bash
+# Summary reviews (one block per reviewer) and their state:
+gh pr view <N> --json reviews --jq '.reviews[] | "\(.author.login) [\(.state)]:\n\(.body)\n"'
+# Inline line-level comments — where bots put the actionable suggestions:
+gh api repos/:owner/:repo/pulls/<N>/comments \
+  --jq '.[] | "[\(.user.login)] \(.path):\(.line // .original_line)\n\(.body)\n"'
+# Issue-style PR comments:
+gh pr view <N> --json comments --jq '.comments[] | "[\(.author.login)] \(.body)"'
+```
+
+- [ ] **Enumerate all of it.** Bot reviewers put the real findings in *inline*
+      comments (often priority-tagged: security-high / high / medium / low), not
+      the summary — fetch the inline comments explicitly; don't stop at the
+      summary body.
+- [ ] **Reconcile against the current head.** Comments are pinned to the commit
+      they were written on; the author may have already fixed some. Check each
+      against the **latest** file state before acting — don't re-apply a fix
+      that's already in, and don't treat a stale comment as still valid.
+- [ ] **Address every unresolved item**, in priority order. For each: apply the
+      fix, or explain on the thread why it doesn't apply. Treat `security-high` /
+      `high` as blockers.
+- [ ] **Verify each suggestion against this repo — don't apply blindly.** A bot
+      can suggest something redundant or wrong (e.g. a standalone DB-migration
+      step when `npm run deploy` already runs it). Apply the *intent* accurately
+      and cite the actual code (a `package.json` script, an existing file) rather
+      than the bot's assumption.
+- [ ] **Reply / resolve** the threads so the trail shows the feedback was handled.
+
+## 3. Security review (MUST, read-only)
 
 Pull the full diff and read all of it:
 
@@ -78,7 +117,7 @@ gh pr diff <N>
 ### Output the verdict
 - [ ] For each finding: file:line, why it matters, and blocker vs. follow-up.
 
-## 3. Supply-chain review (MUST when deps change)
+## 4. Supply-chain review (MUST when deps change)
 
 Trigger: any change to `package.json`, `package-lock.json`, or a new `import`
 of a third-party module.
@@ -97,7 +136,7 @@ of a third-party module.
       (e.g. the sanitizer's DOM), typosquatted names, or a lockfile diff far
       larger than the stated change.
 
-## 4. Bug & correctness review (MUST)
+## 5. Bug & correctness review (MUST)
 
 - [ ] Trace the changed code path end to end for the happy path **and** error
       paths. Does a failure leave data consistent (job/message marked `failed`,
@@ -107,7 +146,7 @@ of a third-party module.
 - [ ] Confirm the change is **minimal** and doesn't alter unrelated behavior.
 - [ ] Confirm spec + `docs/MVP_SCOPE.md` registry are updated (project protocol).
 
-## 5. Test verification (MUST) — trust CI, read the tests
+## 6. Test verification (MUST) — trust CI, read the tests
 
 We verify **without installing**. Two independent signals:
 
@@ -115,7 +154,7 @@ We verify **without installing**. Two independent signals:
    (`typecheck + lint + test:cov`, with the 100%-coverage gate on included
    files) is **SUCCESS** on the PR's merge state. If a fork PR's checks were
    skipped because it's a draft / first-time contributor, marking it ready or
-   pushing the rebase typically triggers them — then **wait for green** (§7).
+   pushing the rebase typically triggers them — then **wait for green** (§8).
 2. **You read the tests.** CI green only proves the tests that exist pass. Read
    them and confirm they actually exercise the risk:
    - [ ] New security-relevant code has tests for the **denial** case, not just
@@ -134,14 +173,14 @@ We verify **without installing**. Two independent signals:
 > you genuinely need a local run, do it in a sandboxed/throwaway environment,
 > never on the working machine.
 
-## 6. Decision
+## 7. Decision
 
 - [ ] All MUSTs satisfied and checks green → proceed to merge.
 - [ ] Draft, or unresolved blocker, or a security/supply-chain concern →
       **stop**, summarize findings, and get explicit approval (or request
       changes) before merging.
 
-## 7. Merge mechanics
+## 8. Merge mechanics
 
 ```bash
 # Drafts must be readied first; this is also your moment to confirm CI runs.
@@ -161,11 +200,17 @@ gh pr merge <N> --squash --subject "<type>: <summary> (#<N>)"
       the branch, `git merge origin/main`, resolve **keeping both sides' intent**
       (e.g. keep both feature rows in numeric order), commit, push, then
       **re-wait for CI green** before merging.
+- [ ] **Fork PRs:** CI on a fork PR from a new contributor is gated as
+      `action_required` and won't run until a maintainer approves it:
+      `gh api -X POST repos/:owner/:repo/actions/runs/<run_id>/approve`. If the
+      PR has `maintainerCanModify: true`, you can push review fixes straight to
+      the contributor's branch (`gh pr checkout <N>` then `git push`) — say so
+      when you do (§9). Re-approve CI after pushing, and wait for green.
 - [ ] After each merge: `git fetch && git log origin/main --oneline` and confirm
       the new files/rows actually landed. If you resolved a conflict, double-check
       the merged content on `main`.
 
-## 8. Close the loop — thank the author (MUST)
+## 9. Close the loop — thank the author (MUST)
 
 After a successful merge, comment on the PR:
 
@@ -184,7 +229,7 @@ gh pr comment <N> --body-file <file>
 - [ ] If you rebased/resolved conflicts on their branch, say what you changed and
       why.
 
-## 9. Report back
+## 10. Report back
 
 - [ ] Tell the requester: what merged (with commit SHAs), the security verdict,
       any residual risks / recommended follow-ups, and exactly which verification
@@ -197,6 +242,7 @@ gh pr comment <N> --body-file <file>
 
 ```
 [ ] Read the full diff (not just the description)
+[ ] Read & resolve ALL existing reviews/comments — humans AND bots (inline too)
 [ ] Cross-tenant isolation + denial tests present
 [ ] Email abuse: sender gated, no header injection, HTML sanitized on store+render
 [ ] Secrets never logged/returned; no user-controlled SSRF
