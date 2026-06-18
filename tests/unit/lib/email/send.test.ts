@@ -165,6 +165,26 @@ describe("sendEmail", () => {
 		expect(providerSend.mock.calls[0][0].from).toBe('"Agent A" <a@example.com>');
 	});
 
+	it("falls back to the mailbox localPart when the matched mailbox has no displayName", async () => {
+		queueValidation();
+		mock
+			.queueSelect([{ organizationId: null }]) // getUserOrgId inside getFormattedSenderAddress
+			.queueSelect([{ localPart: "a", displayName: null, hostname: "example.com" }]); // a@example.com, no display name
+		providerSend.mockResolvedValue({ providerMessageId: "prov-3" });
+
+		await sendEmail(env, {
+			userId: "u1",
+			from: "a@example.com",
+			to: "b@x.com",
+			subject: "Hi",
+			mailboxId: "mb_1",
+		});
+
+		// displayName null -> formatEmailAddress falls back to localPart "a"
+		expect(mock.inserts[0].values).toMatchObject({ fromAddr: '"a" <a@example.com>' });
+		expect(providerSend.mock.calls[0][0].from).toBe('"a" <a@example.com>');
+	});
+
 	it("keeps the requested from when the mailbox row is missing", async () => {
 		queueValidation();
 		mock

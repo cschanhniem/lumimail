@@ -69,6 +69,7 @@ export default defineConfig({
 				"src/lib/email/webhooks.ts",
 				"src/lib/email/routing.ts",
 				"src/lib/email/inbound.ts",
+				"src/app/api/api-keys/route.ts",
 			],
 			thresholds: {
 				lines: 100,

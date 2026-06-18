@@ -168,6 +168,17 @@ describe("processInboundMessage", () => {
 		expect(sendEmail).not.toHaveBeenCalled();
 	});
 
+	it("falls back to the localPart when the mailbox has no displayName", async () => {
+		const mbNoName = { ...mailbox, displayName: null };
+		resolveInboundTargets.mockResolvedValue([{ action: "store", mailbox: mbNoName }] as RoutingDecision[]);
+		const env = makeEnv(makeR2());
+		mock.queueSelect([]).queueSelect([{ enabled: false }]);
+
+		await processInboundMessage(env, payload);
+		// displayName null -> formatEmailAddress uses localPart "a"
+		expect(mock.inserts[0].values).toMatchObject({ toAddr: '"a" <a@example.com>' });
+	});
+
 	it("uses parsed.toAddr when it differs from the mailbox address", async () => {
 		resolveInboundTargets.mockResolvedValue(storeDecisions);
 		parseRawMime.mockResolvedValue({ ...parsed, toAddr: "different@elsewhere.com" });
@@ -258,6 +269,28 @@ describe("processInboundMessage filters", () => {
 			.queueSelect([{ enabled: false }]);
 		await processInboundMessage(baseEnv(), payload);
 		expect(mock.updates[0].set).toEqual({ read: true });
+	});
+
+	it("matches via hasWords against fromAddr when the subject does not contain it", async () => {
+		singleStore();
+		// subject "Hello" does not include "sender"; fromAddr "sender@other.com" does
+		mock
+			.queueSelect([{ enabled: true, hasWords: "sender", actionMarkRead: true }])
+			.queueSelect([{ enabled: false }]);
+		await processInboundMessage(baseEnv(), payload);
+		expect(mock.updates[0].set).toEqual({ read: true });
+	});
+
+	it("evaluates subjectContains and hasWords against an empty string when the subject is null", async () => {
+		singleStore();
+		parseRawMime.mockResolvedValue({ ...parsed, subject: null });
+		// subject null -> (subject ?? "") used for both subjectContains and hasWords.
+		// subjectContains "Hello" no longer matches the empty subject, so the filter is skipped.
+		mock
+			.queueSelect([{ enabled: true, subjectContains: "Hello", hasWords: "Hello", actionMarkRead: true }])
+			.queueSelect([{ enabled: false }]);
+		await processInboundMessage(baseEnv(), payload);
+		expect(mock.updates).toHaveLength(0);
 	});
 
 	it("does not update when a matching filter has no field actions but inserts the label", async () => {
