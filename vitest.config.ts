@@ -65,6 +65,10 @@ export default defineConfig({
 				"src/lib/auth/org-guard.ts",
 				"src/lib/auth/client.ts",
 				"src/lib/api/auth.ts",
+				"src/lib/email/send.ts",
+				"src/lib/email/webhooks.ts",
+				"src/lib/email/routing.ts",
+				"src/lib/email/inbound.ts",
 			],
 			thresholds: {
 				lines: 100,

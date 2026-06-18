@@ -119,6 +119,18 @@ describe("provisionDomainOnCloudflare", () => {
 		expect(result.sendingEnabled).toBe(false);
 	});
 
+	it("disables sending for an apex domain even when sending is enabled", async () => {
+		findZone.mockResolvedValue(apexZone);
+		enableRouting.mockResolvedValue({ enabled: true });
+
+		const result = await provisionDomainOnCloudflare(env, "example.com");
+
+		expect(listSubs).not.toHaveBeenCalled();
+		expect(createSub).not.toHaveBeenCalled();
+		expect(result.sendingEnabled).toBe(false);
+		expect(result.sendingSubdomainTag).toBeNull();
+	});
+
 	it("skips sending when enableSending is false", async () => {
 		findZone.mockResolvedValue(apexZone);
 		enableRouting.mockResolvedValue({ enabled: true });
