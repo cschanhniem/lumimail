@@ -58,7 +58,7 @@ bug, the security hole, or the dead code. Do not merge with unresolved feedback.
 # Summary reviews (one block per reviewer) and their state:
 gh pr view <N> --json reviews --jq '.reviews[] | "\(.author.login) [\(.state)]:\n\(.body)\n"'
 # Inline line-level comments — where bots put the actionable suggestions:
-gh api repos/<owner>/<repo>/pulls/<N>/comments \
+gh api repos/:owner/:repo/pulls/<N>/comments \
   --jq '.[] | "[\(.user.login)] \(.path):\(.line // .original_line)\n\(.body)\n"'
 # Issue-style PR comments:
 gh pr view <N> --json comments --jq '.comments[] | "[\(.author.login)] \(.body)"'
@@ -202,7 +202,7 @@ gh pr merge <N> --squash --subject "<type>: <summary> (#<N>)"
       **re-wait for CI green** before merging.
 - [ ] **Fork PRs:** CI on a fork PR from a new contributor is gated as
       `action_required` and won't run until a maintainer approves it:
-      `gh api -X POST repos/<owner>/<repo>/actions/runs/<run_id>/approve`. If the
+      `gh api -X POST repos/:owner/:repo/actions/runs/<run_id>/approve`. If the
       PR has `maintainerCanModify: true`, you can push review fixes straight to
       the contributor's branch (`gh pr checkout <N>` then `git push`) — say so
       when you do (§9). Re-approve CI after pushing, and wait for green.
