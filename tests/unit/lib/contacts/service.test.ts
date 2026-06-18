@@ -99,4 +99,10 @@ describe("getMessageContactNames", () => {
 		const result = await getMessageContactNames(env, "u1", '"F" <from@x.com>', "to@y.com");
 		expect(result).toEqual({ fromContactName: "Fname", toContactName: null });
 	});
+
+	it("resolves the to-name and leaves an unknown from-name null", async () => {
+		mock.queueSelect([{ email: "to@y.com", displayName: "Tname" }]);
+		const result = await getMessageContactNames(env, "u1", "from@x.com", '"T" <to@y.com>');
+		expect(result).toEqual({ fromContactName: null, toContactName: "Tname" });
+	});
 });
