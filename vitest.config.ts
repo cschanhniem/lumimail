@@ -55,6 +55,8 @@ export default defineConfig({
 				"src/lib/email/parse.ts",
 				"src/lib/user.ts",
 				"src/lib/contacts/service.ts",
+				"src/lib/migration/backfill-orgs.ts",
+				"src/lib/seed.ts",
 			],
 			thresholds: {
 				lines: 100,
