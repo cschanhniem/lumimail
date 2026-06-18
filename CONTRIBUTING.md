@@ -8,15 +8,15 @@ Thanks for wanting to make email a little more open. This guide gets a **human o
 
 ```bash
 git clone https://github.com/cschanhniem/lumimail && cd lumimail
-cp .dev.vars.example .dev.vars      # fill in CF_TOKEN (see README → Setup)
-npm install
-npm run db:migrate:local
+./setup.sh                          # copies .dev.vars, installs deps, runs local migrations
 npm run dev                         # http://localhost:3000
 
 # before every PR:
 npm run verify                      # typecheck + lint + test:cov (100% on touched files)
 npm run e2e                         # only for user-visible changes
 ```
+
+New here? Read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the data-flow map, then pick a task from [`docs/AGENT_TASKS.md`](./docs/AGENT_TASKS.md).
 
 - **Node 22** (matches CI).
 - One logical change per PR. Small, reversible, reviewable.

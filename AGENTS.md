@@ -68,6 +68,8 @@ Key conventions: DB via `getDb(env)`, IDs via `newId(prefix)`, auth via `require
 
 ## Where to start
 
+- **Bootstrap:** run `./setup.sh` (copies `.dev.vars`, installs deps, applies local D1 migrations).
+- **Orient:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — data-flow diagrams + where every behavior lives.
 - **Pick work:** [`docs/AGENT_TASKS.md`](./docs/AGENT_TASKS.md) — self-contained tasks sized for one PR.
 - **Full lifecycle:** [`docs/ENGINEERING.md`](./docs/ENGINEERING.md).
 - **Contribution mechanics (commits, PRs, CLA):** [`CONTRIBUTING.md`](./CONTRIBUTING.md).

@@ -79,6 +79,15 @@ Not a toy. Not a "look I parsed an email" demo. A working multi-user mail platfo
 
 ## Setup
 
+One command (idempotent — copies `.dev.vars`, installs deps, runs local migrations):
+
+```bash
+./setup.sh
+npm run dev
+```
+
+Or step by step:
+
 ```bash
 cp .dev.vars.example .dev.vars
 # Add CF_TOKEN with Zone Read, Email Routing Edit, Email Sending Edit,
@@ -210,6 +219,7 @@ Every contribution keeps email a little more open.
 Lumimail is designed so autonomous agents can contribute as first-class collaborators:
 
 - **[`AGENTS.md`](./AGENTS.md)** — the canonical agent contract: default behavior, rules, codebase map.
+- **[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)** — request/mail data-flow diagrams and where every behavior lives.
 - **[`docs/AGENT_TASKS.md`](./docs/AGENT_TASKS.md)** — a curated, self-contained task surface sized for single PRs.
 - **[`docs/ENGINEERING.md`](./docs/ENGINEERING.md)** — the spec → tests → implement → verify lifecycle every change follows.
 - **One-command verification:** `npm run verify` is the definition of done (typecheck + lint + 100%-coverage tests).
