@@ -39,7 +39,7 @@ describe("GET /api/aliases", () => {
 		mock.queueSelect([{ id: "a1", localPart: "team" }]);
 		const res = await GET(getReq());
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ success: true, data: { aliases: [{ id: "a1", localPart: "team" }] } });
+		expect((await res.json()) as any).toEqual({ success: true, data: { aliases: [{ id: "a1", localPart: "team" }] } });
 	});
 });
 
@@ -61,7 +61,7 @@ describe("POST /api/aliases", () => {
 		mock.queueSelect([]);
 		const res = await POST(postReq({ domainId: "d1", localPart: "team" }));
 		expect(res.status).toBe(404);
-		expect(await res.json()).toMatchObject({ error: { message: "Domain not found" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "Domain not found" } });
 	});
 
 	it("returns 404 when the domain belongs to another org", async () => {
@@ -77,7 +77,7 @@ describe("POST /api/aliases", () => {
 		mock.queueSelect([{ id: "mb1", organizationId: "other" }]);
 		const res = await POST(postReq({ domainId: "d1", localPart: "team", targetMailboxId: "mb1" }));
 		expect(res.status).toBe(404);
-		expect(await res.json()).toMatchObject({ error: { message: "Mailbox not found" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "Mailbox not found" } });
 	});
 
 	it("creates an alias with a target mailbox", async () => {
@@ -110,7 +110,7 @@ describe("POST /api/aliases", () => {
 			forwardTo: "ext@ex.com",
 			isGroup: false,
 		});
-		const body = await res.json();
+		const body = (await res.json()) as any;
 		expect(body.data).toMatchObject({ id: "alias_1", localPart: "team" });
 	});
 });

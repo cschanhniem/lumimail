@@ -50,7 +50,7 @@ describe("GET /api/domains", () => {
 		m.guardUser.mockResolvedValue({ user: { id: "u1", organizationId: null } });
 		const res = await GET(getReq());
 		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({ error: { message: "No organization" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "No organization" } });
 	});
 
 	it("lists domains without DNS by default", async () => {
@@ -58,7 +58,7 @@ describe("GET /api/domains", () => {
 		m.listUserDomains.mockResolvedValue([{ id: "d1" }]);
 		const res = await GET(getReq());
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ domains: [{ id: "d1" }] });
+		expect((await res.json()) as any).toEqual({ domains: [{ id: "d1" }] });
 		expect(m.getDomainDns).not.toHaveBeenCalled();
 	});
 
@@ -71,7 +71,7 @@ describe("GET /api/domains", () => {
 		});
 		const res = await GET(getReq("https://x.test/api/domains?includeDns=true"));
 		expect(res.status).toBe(200);
-		const body = await res.json();
+		const body = (await res.json()) as any;
 		expect(body.dns.d1).toBeDefined();
 		expect(body.dns.d2).toBeUndefined();
 	});
@@ -88,7 +88,7 @@ describe("POST /api/domains", () => {
 		m.guardUser.mockResolvedValue({ user: { id: "u1", organizationId: "o1" } });
 		const res = await POST(postReq({ hostname: "nope" }));
 		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({ error: { message: "Validation failed" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "Validation failed" } });
 	});
 
 	it("adds a domain on success", async () => {
@@ -96,7 +96,7 @@ describe("POST /api/domains", () => {
 		m.addDomainForUser.mockResolvedValue({ id: "d1" });
 		const res = await POST(postReq({ hostname: "example.com", enableRouting: true, enableSending: false }));
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ success: true, data: { id: "d1" } });
+		expect((await res.json()) as any).toEqual({ success: true, data: { id: "d1" } });
 		expect(m.addDomainForUser).toHaveBeenCalledWith({}, "u1", "o1", "example.com", {
 			enableRouting: true,
 			enableSending: false,
@@ -108,6 +108,6 @@ describe("POST /api/domains", () => {
 		m.addDomainForUser.mockRejectedValue(new Error("dup"));
 		const res = await POST(postReq({ hostname: "example.com" }));
 		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({ error: { message: "Failed to add domain" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "Failed to add domain" } });
 	});
 });

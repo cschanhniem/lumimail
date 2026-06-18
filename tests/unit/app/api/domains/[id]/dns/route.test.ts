@@ -52,7 +52,7 @@ describe("GET /api/domains/[id]/dns", () => {
 		m.getDomainDns.mockResolvedValue({ routing: {}, sending: [] });
 		const res = await GET(req(), params());
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({
+		expect((await res.json()) as any).toEqual({
 			success: true,
 			data: { domain: { id: "d1" }, dns: { routing: {}, sending: [] } },
 		});
@@ -64,6 +64,6 @@ describe("GET /api/domains/[id]/dns", () => {
 		m.getDomainDns.mockRejectedValue(new Error("boom"));
 		const res = await GET(req(), params());
 		expect(res.status).toBe(500);
-		expect(await res.json()).toMatchObject({ error: { message: "Failed to fetch DNS" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "Failed to fetch DNS" } });
 	});
 });

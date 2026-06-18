@@ -63,7 +63,7 @@ describe("GET /api/domains/[id]", () => {
 		m.getDomainForUser.mockResolvedValue({ id: "d1" });
 		const res = await GET(req(), params());
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ success: true, data: { domain: { id: "d1" } } });
+		expect((await res.json()) as any).toEqual({ success: true, data: { domain: { id: "d1" } } });
 	});
 });
 
@@ -92,7 +92,7 @@ describe("PATCH /api/domains/[id]", () => {
 		m.getDomainForUser.mockResolvedValue({ id: "d1" });
 		const res = await PATCH(req({ routingEnabled: "yes", other: 1 }), params());
 		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({ error: { message: "No valid fields to update" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "No valid fields to update" } });
 	});
 
 	it("updates both boolean fields and returns the updated row", async () => {
@@ -102,7 +102,7 @@ describe("PATCH /api/domains/[id]", () => {
 		const res = await PATCH(req({ routingEnabled: true, sendingEnabled: false }), params());
 		expect(res.status).toBe(200);
 		expect(mock.updates[0].set).toEqual({ routingEnabled: true, sendingEnabled: false });
-		expect(await res.json()).toEqual({
+		expect((await res.json()) as any).toEqual({
 			success: true,
 			data: { domain: { id: "d1", routingEnabled: true, sendingEnabled: false } },
 		});
@@ -121,7 +121,7 @@ describe("DELETE /api/domains/[id]", () => {
 		m.removeDomainForUser.mockResolvedValue(undefined);
 		const res = await DELETE(req(), params());
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ success: true, data: { ok: true } });
+		expect((await res.json()) as any).toEqual({ success: true, data: { ok: true } });
 		expect(m.removeDomainForUser).toHaveBeenCalledWith({}, "o1", "d1");
 	});
 
@@ -130,6 +130,6 @@ describe("DELETE /api/domains/[id]", () => {
 		m.removeDomainForUser.mockRejectedValue(new Error("boom"));
 		const res = await DELETE(req(), params());
 		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({ error: { message: "Failed to remove domain" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "Failed to remove domain" } });
 	});
 });

@@ -32,7 +32,7 @@ describe("DELETE /api/aliases/[id]", () => {
 		mock.queueSelect([]);
 		const res = await DELETE(req(), params());
 		expect(res.status).toBe(404);
-		expect(await res.json()).toMatchObject({ error: { message: "Alias not found" } });
+		expect((await res.json()) as any).toMatchObject({ error: { message: "Alias not found" } });
 	});
 
 	it("deletes the alias on success", async () => {
@@ -40,7 +40,7 @@ describe("DELETE /api/aliases/[id]", () => {
 		mock.queueSelect([{ id: "a1", organizationId: "o1" }]);
 		const res = await DELETE(req(), params());
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ success: true, data: { ok: true } });
+		expect((await res.json()) as any).toEqual({ success: true, data: { ok: true } });
 		expect(mock.deletes).toHaveLength(1);
 	});
 });

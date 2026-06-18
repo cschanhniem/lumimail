@@ -54,7 +54,7 @@ describe("GET /api/mailboxes", () => {
 		]);
 		const res = await GET(getReq());
 		expect(res.status).toBe(200);
-		const body = await res.json();
+		const body = (await res.json()) as any;
 		expect(body.mailboxes[0].isPrimary).toBe(true);
 		expect(body.mailboxes[1].isPrimary).toBe(false);
 	});
@@ -111,7 +111,7 @@ describe("POST /api/mailboxes", () => {
 		m.ensureRule.mockResolvedValue(undefined);
 		const res = await POST(postReq({ domainId: "d1", localPart: "Hello", displayName: "Hi" }));
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({
+		expect((await res.json()) as any).toEqual({
 			success: true,
 			data: { id: "mbx_1", address: "hello@ex.com" },
 		});
