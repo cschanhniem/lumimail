@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createDbMock, type DbMock } from "../../../../../helpers/db";
+import { createDbMock, type DbMock } from "../../../../helpers/db";
 
 const m = vi.hoisted(() => ({
 	db: null as unknown,

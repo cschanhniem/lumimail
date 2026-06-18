@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextResponse } from "next/server";
-import { createDbMock, type DbMock } from "../../../../helpers/db";
+import { createDbMock, type DbMock } from "../../../helpers/db";
 
 const m = vi.hoisted(() => ({ db: null as unknown, guardOrgAdmin: vi.fn() }));
 vi.mock("@/lib/cloudflare", () => ({ getEnv: () => ({}) }));
