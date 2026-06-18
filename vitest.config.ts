@@ -45,6 +45,12 @@ export default defineConfig({
 				"src/lib/email/providers/index.ts",
 				"src/lib/email/providers/cloudflare.ts",
 				"src/lib/email/providers/resend.ts",
+				"src/lib/api/response.ts",
+				"src/lib/cloudflare-api-utils.ts",
+				"src/lib/contacts/utils.ts",
+				"src/lib/domains/utils.ts",
+				"src/lib/auth/password.ts",
+				"src/lib/rate-limit.ts",
 			],
 			thresholds: {
 				lines: 100,
