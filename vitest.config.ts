@@ -70,6 +70,7 @@ export default defineConfig({
 				"src/lib/email/routing.ts",
 				"src/lib/email/inbound.ts",
 				"src/app/api/api-keys/route.ts",
+				"src/lib/cloudflare-api.ts",
 			],
 			thresholds: {
 				lines: 100,
