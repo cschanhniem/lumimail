@@ -51,6 +51,9 @@ export default defineConfig({
 				"src/lib/domains/utils.ts",
 				"src/lib/auth/password.ts",
 				"src/lib/rate-limit.ts",
+				"src/lib/cloudflare.ts",
+				"src/lib/email/sanitize.ts",
+				"src/lib/email/parse.ts",
 			],
 			thresholds: {
 				lines: 100,
