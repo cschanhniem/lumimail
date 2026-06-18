@@ -118,7 +118,7 @@ describe("authFetch", () => {
 
 		const result = await authFetch("/api/x", { method: "POST" });
 		expect(result).toBe(response);
-		const [, init] = fetchMock.mock.calls[0] as [unknown, RequestInit];
+		const [, init] = fetchMock.mock.calls[0] as unknown as [unknown, RequestInit];
 		expect((init.headers as Headers).get("Authorization")).toBe("Bearer tok5");
 		expect(init.method).toBe("POST");
 	});
