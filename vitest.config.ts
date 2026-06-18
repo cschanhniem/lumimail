@@ -43,6 +43,8 @@ export default defineConfig({
 				"**/*.d.ts",
 				// Type-only module (no runtime statements).
 				"src/lib/email/providers/types.ts",
+				// Pure re-export barrel (no own executable statements to cover).
+				"src/app/(admin)/api-keys/utils.ts",
 				// ⚠️ KNOWN XSS BUG: DOMPurify + linkedom no-ops in this runtime and
 				// returns mail HTML UNSANITIZED (see src/lib/email/sanitize.ts header).
 				// Excluded until a Workers-verified sanitizer fix lands; cannot be

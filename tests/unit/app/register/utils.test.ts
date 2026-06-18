@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/auth/client", () => ({ persistAuthSession: vi.fn() }));
 
-import { getInviteInfo, submitPrimaryDomain, submitRegistration } from "@/app/register/utils";
+import { getInviteInfo, getSetupStatus, submitPrimaryDomain, submitRegistration } from "@/app/register/utils";
 
 function jsonResponse(ok: boolean, body: unknown) {
 	return { ok, json: async () => body } as unknown as Response;
@@ -21,6 +21,15 @@ beforeEach(() => {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
+});
+
+describe("getSetupStatus", () => {
+	it("fetches and returns the setup status", async () => {
+		const status = { primaryDomainExists: true };
+		fetchMock.mockResolvedValue(jsonResponse(true, status));
+		expect(await getSetupStatus()).toEqual(status);
+		expect(fetchMock).toHaveBeenCalledWith("/api/setup/status");
+	});
 });
 
 describe("submitPrimaryDomain", () => {
