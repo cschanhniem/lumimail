@@ -18,17 +18,15 @@ wrangler --version
 
 Create a Cloudflare API token with these permissions:
 
-- Account: Workers Scripts: Edit
 - Account: Email Sending: Edit
 - Zone: Zone: Read
 - Zone: DNS: Edit
 - Zone: Email Routing Rules: Edit
 
-Store the token as a secret. Do not commit it.
+Store the token safely. Do not commit it.
 
-```bash
-npx wrangler secret put CF_TOKEN
-```
+Keep this token handy; you will save it as a secret after Wrangler has been authenticated and configured.
+
 ## Wrangler Configuration
 
 Authenticate Wrangler:
@@ -37,7 +35,6 @@ Authenticate Wrangler:
 wrangler login
 wrangler whoami
 ```
-Configure your project by updating `wrangler.jsonc` or `wrangler.toml`.
 
 Typical settings include:
 
