@@ -39,7 +39,11 @@ export function createDbMock() {
 		"run",
 	];
 
-	function makeThenable(resolve: () => unknown) {
+	// A builder whose terminal value is configurable. `.get()` resolves to the
+	// first row of the next queued select; `.returning()` resolves to the next
+	// queued select array; a bare await resolves to `base()`.
+	function makeBuilder(base: () => unknown) {
+		let resolve = base;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const b: any = {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,14 +54,22 @@ export function createDbMock() {
 			finally: (onF: any) => Promise.resolve(resolve()).finally(onF),
 		};
 		for (const m of chainMethods) b[m] = vi.fn(() => b);
+		b.get = vi.fn(() => {
+			resolve = () => (selectQueue.shift() ?? [])[0];
+			return b;
+		});
+		b.returning = vi.fn(() => {
+			resolve = () => selectQueue.shift() ?? [];
+			return b;
+		});
 		return b;
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const db: any = {
-		select: vi.fn(() => makeThenable(() => selectQueue.shift() ?? [])),
+		select: vi.fn(() => makeBuilder(() => selectQueue.shift() ?? [])),
 		insert: vi.fn((table: unknown) => {
-			const b = makeThenable(() => undefined);
+			const b = makeBuilder(() => undefined);
 			b.values = vi.fn((values: unknown) => {
 				inserts.push({ table, values });
 				return b;
@@ -65,7 +77,7 @@ export function createDbMock() {
 			return b;
 		}),
 		update: vi.fn((table: unknown) => {
-			const b = makeThenable(() => undefined);
+			const b = makeBuilder(() => undefined);
 			b.set = vi.fn((set: unknown) => {
 				updates.push({ table, set });
 				return b;
@@ -74,7 +86,7 @@ export function createDbMock() {
 		}),
 		delete: vi.fn((table: unknown) => {
 			deletes.push({ table });
-			return makeThenable(() => undefined);
+			return makeBuilder(() => undefined);
 		}),
 	};
 
