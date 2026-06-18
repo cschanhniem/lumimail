@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, ChevronDown } from "lucide-react";
 import dayjs from "dayjs";
 import { useTranslations } from "next-intl";
-import DOMPurify from "isomorphic-dompurify";
+import DOMPurify from "dompurify";
 import { MarkAsRead } from "@/components/mark-read";
 import { MessageActions } from "@/components/message-actions/message-actions";
 import { AttachmentList } from "@/components/messages/attachment-list";
