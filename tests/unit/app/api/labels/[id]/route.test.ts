@@ -46,11 +46,13 @@ describe("PATCH /api/labels/[id]", () => {
 		expect(res.status).toBe(400);
 	});
 
-	// NOTE: the 404 branch (existing == undefined) cannot be exercised through
-	// the shared db mock: `.get()` is a chainable no-op and an awaited select
-	// chain always resolves to the queued array (never a single undefined row),
-	// so `if (!existing)` is unreachable here. This is a harness limitation, not
-	// a route bug — under real D1, `.get()` returns a row|undefined. Skipped.
+	it("returns 404 when the label is missing or not owned", async () => {
+		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
+		mock.queueSelect([]); // .get() -> undefined
+		const res = await PATCH(req({ name: "New" }), params());
+		expect(res.status).toBe(404);
+		expect(mock.updates).toHaveLength(0);
+	});
 
 	it("updates an existing label", async () => {
 		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
@@ -70,7 +72,13 @@ describe("DELETE /api/labels/[id]", () => {
 		expect(res.status).toBe(401);
 	});
 
-	// 404 branch unreachable through the mock — see PATCH note above.
+	it("returns 404 when the label is missing or not owned", async () => {
+		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
+		mock.queueSelect([]); // .get() -> undefined
+		const res = await DELETE(req(), params());
+		expect(res.status).toBe(404);
+		expect(mock.deletes).toHaveLength(0);
+	});
 
 	it("deletes an existing label", async () => {
 		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
