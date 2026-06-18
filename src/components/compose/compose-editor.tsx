@@ -56,7 +56,7 @@ export function ComposeEditor({
     if (!editor) return;
     const isSame = editor.getHTML() === content;
     if (isSame) return;
-    editor.commands.setContent(content, false);
+    editor.commands.setContent(content, { emitUpdate: false });
   }, [editor, content]);
 
   useEffect(() => {
