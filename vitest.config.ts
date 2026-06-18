@@ -35,9 +35,9 @@ export default defineConfig({
 			// Gate ALL logic files: every TS module under src/lib, every API route
 			// handler + colocated `utils.ts`, and component `*-utils.ts` helpers.
 			// React views (`.tsx` pages/components) are out of scope for unit
-			// coverage (exercised by Playwright E2E). `all: true` ensures an
-			// untested file in these globs fails CI at 0%, not just imported ones.
-			all: true,
+			// coverage (exercised by Playwright E2E). Vitest's `all` defaults to
+			// true, so an untested file in these globs fails CI at 0%, not just
+			// imported ones.
 			include: ["src/lib/**/*.ts", "src/app/**/*.ts", "src/components/**/*-utils.ts"],
 			exclude: [
 				"**/*.d.ts",

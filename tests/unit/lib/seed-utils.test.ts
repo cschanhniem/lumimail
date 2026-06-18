@@ -4,7 +4,7 @@ import { createDbMock, type DbMock } from "../helpers/db";
 const h = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock("@/db", () => ({ getDb: () => h.db }));
 
-const upsertContactFromAddress = vi.fn(async () => undefined);
+const upsertContactFromAddress = vi.fn(async (..._args: unknown[]) => undefined);
 vi.mock("@/lib/contacts/service", () => ({
 	upsertContactFromAddress: (...args: unknown[]) => upsertContactFromAddress(...args),
 }));
@@ -160,7 +160,7 @@ describe("insertDemoMessages", () => {
 
 		// Contacts upserted once per message, with source/address by direction.
 		expect(upsertContactFromAddress).toHaveBeenCalledTimes(15);
-		const calls = upsertContactFromAddress.mock.calls.map((c) => c[1]) as {
+		const calls = upsertContactFromAddress.mock.calls.map((c) => c[1]) as unknown as {
 			source: string;
 			address: string;
 		}[];

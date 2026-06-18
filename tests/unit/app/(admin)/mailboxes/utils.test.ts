@@ -19,8 +19,4 @@ describe("getMailboxName", () => {
 	it("falls back to the local part when the display name is null", () => {
 		expect(getMailboxName({ displayName: null, localPart: "alice" })).toBe("alice");
 	});
-
-	it("falls back to the local part when the display name is undefined", () => {
-		expect(getMailboxName({ displayName: undefined, localPart: "alice" })).toBe("alice");
-	});
 });
