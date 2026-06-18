@@ -1,6 +1,6 @@
 import PostalMime from "postal-mime";
-import DOMPurify from "isomorphic-dompurify";
 import { formatPostalAddress, formatPostalAddressList } from "@/lib/email/address";
+import { sanitizeHtml } from "@/lib/email/sanitize";
 import { getLatestEmailContent, htmlToReadableText } from "@/lib/email/reply-content-utils";
 
 export type ParsedEmail = {
@@ -11,11 +11,6 @@ export type ParsedEmail = {
 	fromAddr: string | null;
 	toAddr: string | null;
 };
-
-function sanitizeHtml(html: string | null | undefined): string | null {
-	if (!html) return null;
-	return DOMPurify.sanitize(html);
-}
 
 export async function parseRawMime(raw: ArrayBuffer): Promise<ParsedEmail> {
 	const email = await PostalMime.parse(raw);
