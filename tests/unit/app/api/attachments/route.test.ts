@@ -94,11 +94,17 @@ describe("POST /api/attachments", () => {
 		});
 	});
 
-	it("falls back to octet-stream when the file has no type", async () => {
+	it("falls back to octet-stream when the parsed file has no content-type", async () => {
+		// Multipart parsing defaults an empty part type to "application/octet-stream",
+		// so to exercise the `file.type || ...` fallback we hand the handler a
+		// request whose formData() yields a file with a genuinely empty type.
 		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
 		mock.queueSelect([{ id: "msg1" }]);
-		const file = new File([new Uint8Array(5)], "noext", { type: "" });
-		const res = await POST(formReq({ file, messageId: "msg1" }));
+		const fakeFile = { name: "noext", size: 5, type: "", arrayBuffer: async () => new ArrayBuffer(5) };
+		const fakeReq = {
+			formData: async () => ({ get: (k: string) => (k === "file" ? fakeFile : "msg1") }),
+		} as unknown as Request;
+		const res = await POST(fakeReq);
 		expect(res.status).toBe(200);
 		const [, , opts] = m.env.BUCKET.put.mock.calls[0];
 		expect(opts).toMatchObject({ httpMetadata: { contentType: "application/octet-stream" } });

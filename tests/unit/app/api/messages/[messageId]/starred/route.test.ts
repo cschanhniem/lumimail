@@ -35,12 +35,29 @@ describe("PATCH /api/messages/[messageId]/starred", () => {
 		expect(res.status).toBe(401);
 	});
 
-	// NOTE: The 200 (success) and 404 (not found) branches both go through
-	//   `const [updated] = await db.update(messages).set(...).where(...).returning()`.
-	// The shared DB mock (tests/unit/helpers/db.ts) resolves update()/returning()
-	// to `undefined`, so destructuring `const [updated] = undefined` throws a
-	// TypeError before either branch can be observed. These branches are not
-	// testable without extending the mock to support update().returning() rows,
-	// so they are intentionally left uncovered here rather than encoding broken
-	// behavior. See the route report for details.
+	it("stars a message and returns the updated value (200)", async () => {
+		m.guardUser.mockResolvedValue({ user: { id: "u1" }, errorResponse: null });
+		mock.queueSelect([{ starred: true }]); // update().returning() -> [updated]
+		const res = await patch({ starred: true });
+		expect(res.status).toBe(200);
+		expect((await res.json()) as any).toEqual({ starred: true });
+		expect(mock.updates[0].set).toEqual({ starred: true });
+	});
+
+	it("unstars a message and returns the updated value (200)", async () => {
+		m.guardUser.mockResolvedValue({ user: { id: "u1" }, errorResponse: null });
+		mock.queueSelect([{ starred: false }]); // update().returning() -> [updated]
+		const res = await patch({ starred: false });
+		expect(res.status).toBe(200);
+		expect((await res.json()) as any).toEqual({ starred: false });
+		expect(mock.updates[0].set).toEqual({ starred: false });
+	});
+
+	it("returns 404 when no message matches (empty returning())", async () => {
+		m.guardUser.mockResolvedValue({ user: { id: "u1" }, errorResponse: null });
+		mock.queueSelect([]); // update().returning() -> [] => updated undefined
+		const res = await patch({ starred: true });
+		expect(res.status).toBe(404);
+		expect((await res.json()) as any).toEqual({ error: "Not found" });
+	});
 });

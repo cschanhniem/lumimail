@@ -46,6 +46,17 @@ describe("GET /api/messages/[messageId]/labels", () => {
 			data: [{ id: "lbl1", name: "Work" }],
 		});
 	});
+
+	it("returns 404 when the message is not found", async () => {
+		auth();
+		mock.queueSelect([]); // message .get() -> undefined => !msg
+		const res = await GET(makeReq("GET"), params());
+		expect(res.status).toBe(404);
+		expect((await res.json()) as any).toEqual({
+			success: false,
+			error: { message: "Message not found" },
+		});
+	});
 });
 
 describe("POST /api/messages/[messageId]/labels", () => {
@@ -80,6 +91,30 @@ describe("POST /api/messages/[messageId]/labels", () => {
 		});
 		expect(mock.inserts[0].values).toEqual({ messageId: "m1", labelId: "lbl1" });
 	});
+
+	it("returns 404 when the message is not found", async () => {
+		auth();
+		mock.queueSelect([]); // message .get() -> undefined => !msg
+		const res = await POST(makeReq("POST", { labelId: "lbl1" }), params());
+		expect(res.status).toBe(404);
+		expect((await res.json()) as any).toEqual({
+			success: false,
+			error: { message: "Message not found" },
+		});
+	});
+
+	it("returns 404 when the label is not found", async () => {
+		auth();
+		mock.queueSelect([{ id: "m1" }]); // message .get() -> truthy
+		mock.queueSelect([]); // label .get() -> undefined => !label
+		const res = await POST(makeReq("POST", { labelId: "lbl1" }), params());
+		expect(res.status).toBe(404);
+		expect((await res.json()) as any).toEqual({
+			success: false,
+			error: { message: "Label not found" },
+		});
+		expect(mock.inserts).toHaveLength(0);
+	});
 });
 
 describe("DELETE /api/messages/[messageId]/labels", () => {
@@ -113,10 +148,15 @@ describe("DELETE /api/messages/[messageId]/labels", () => {
 		expect(mock.deletes).toHaveLength(1);
 	});
 
-	// NOTE: The "Message not found" 404 branch (GET/POST/DELETE) and the
-	// "Label not found" 404 branch (POST) are gated on `if (!msg)` / `if (!label)`
-	// where `msg`/`label` come from a Drizzle `.get()` call. The shared DB mock
-	// resolves a select chain's `.get()` to the queued ARRAY (e.g. []), which is
-	// always truthy, so these 404 branches are unreachable with the current mock
-	// and are intentionally left uncovered. See the route report.
+	it("returns 404 when the message is not found", async () => {
+		auth();
+		mock.queueSelect([]); // message .get() -> undefined => !msg
+		const res = await DELETE(makeReq("DELETE", { labelId: "lbl1" }), params());
+		expect(res.status).toBe(404);
+		expect((await res.json()) as any).toEqual({
+			success: false,
+			error: { message: "Message not found" },
+		});
+		expect(mock.deletes).toHaveLength(0);
+	});
 });
