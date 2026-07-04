@@ -26,7 +26,7 @@ type Invite = {
 
 const ROLE_BADGES: Record<string, string> = {
   owner: "bg-amber-100 text-amber-800",
-  admin: "bg-blue-100 text-[var(--accent)]",
+  admin: "bg-[var(--accent-muted)] text-[var(--accent)]",
   member: "bg-[var(--surface-subtle)] text-[var(--ink)]",
 };
 

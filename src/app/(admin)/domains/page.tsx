@@ -150,7 +150,7 @@ export default function DomainsPage() {
             return (
               <div
                 key={d.id}
-                className="flex min-h-36 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 shadow-sm shadow-neutral-100"
+                className="flex min-h-36 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 shadow-sm"
               >
                 <div className="flex items-start gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-subtle)] text-[var(--ink-muted)]">
@@ -249,7 +249,7 @@ export default function DomainsPage() {
               <p className="font-sans font-medium text-sm mb-2">
                 Email Routing
               </p>
-              <pre className="overflow-auto bg-[var(--surface-subtle)] dark:bg-neutral-900 p-3 rounded-md">
+              <pre className="overflow-auto bg-[var(--surface-subtle)] p-3 rounded-md">
                 {JSON.stringify(
                   (dnsView.dns as { routing: unknown }).routing,
                   null,
@@ -261,7 +261,7 @@ export default function DomainsPage() {
               <p className="font-sans font-medium text-sm mb-2">
                 Email Sending
               </p>
-              <pre className="overflow-auto bg-[var(--surface-subtle)] dark:bg-neutral-900 p-3 rounded-md">
+              <pre className="overflow-auto bg-[var(--surface-subtle)] p-3 rounded-md">
                 {JSON.stringify(
                   (dnsView.dns as { sending: DnsRecord[] }).sending,
                   null,

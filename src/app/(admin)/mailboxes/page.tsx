@@ -83,7 +83,7 @@ export default function MailboxesPage() {
 							<div className="space-y-2">
 								<Label>Domain</Label>
 								<select
-									className="w-full h-10 rounded-md border border-[var(--border)] px-3 text-sm shadow-sm shadow-neutral-200/50 placeholder:text-[var(--ink-faint)] focus-visible:outline-none focus-visible:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+									className="w-full h-10 rounded-md border border-[var(--border)] px-3 text-sm shadow-sm placeholder:text-[var(--ink-faint)] focus-visible:outline-none focus-visible:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
 									value={domainId}
 									onChange={(event) => setDomainId(event.target.value)}
 								>
@@ -148,7 +148,7 @@ export default function MailboxesPage() {
 							<Link
 								key={mailbox.id}
 								href={`/mailboxes/${mailbox.id}`}
-								className="group flex min-h-24 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 shadow-sm shadow-neutral-100 transition hover:border-[var(--accent)] hover:bg-[var(--accent-muted)] hover:shadow-md"
+								className="group flex min-h-24 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 shadow-sm transition hover:border-[var(--accent)] hover:bg-[var(--accent-muted)] hover:shadow-md"
 							>
 								<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-subtle)] text-[var(--ink-muted)] group-hover:bg-[var(--accent-muted)] group-hover:text-[var(--accent)]">
 									<Mail className="h-5 w-5" />

@@ -109,7 +109,7 @@ export default function ApiKeysPage() {
 					{(data?.apiKeys ?? []).map((key) => (
 						<div
 							key={key.id}
-							className="flex min-h-24 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 shadow-sm shadow-neutral-100"
+							className="flex min-h-24 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 shadow-sm"
 						>
 							<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-subtle)] text-[var(--ink-muted)]">
 								<KeyRound className="h-5 w-5" />

@@ -4,7 +4,7 @@ export function AuthShell({ icon: Icon, title, description, children, footer, st
 	return (
 		<div className="min-h-dvh bg-[var(--surface-subtle)] p-4 text-[var(--ink)] sm:p-6">
 			<div className="mx-auto flex min-h-[calc(100dvh-32px)] max-w-6xl items-center sm:min-h-[calc(100dvh-48px)]">
-				<div className="mx-auto bg-[var(--surface-raised)] overflow-hidden rounded-4xl shadow-lg shadow-neutral-200/50">
+				<div className="mx-auto bg-[var(--surface-raised)] overflow-hidden rounded-4xl shadow-lg">
 
 					<section className="flex flex-col justify-between p-6 sm:p-10">
 						<div>

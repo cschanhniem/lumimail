@@ -18,8 +18,8 @@ type Contact = {
 };
 
 const SOURCE_BADGE: Record<ContactSource, { label: string; className: string }> = {
-	manual: { label: "Manual", className: "bg-blue-100 text-[var(--accent)]" },
-	inbound: { label: "Inbound", className: "bg-green-100 text-[var(--success)]" },
+	manual: { label: "Manual", className: "bg-[var(--accent-muted)] text-[var(--accent)]" },
+	inbound: { label: "Inbound", className: "bg-[var(--success)]/15 text-[var(--success)]" },
 	outbound: { label: "Outbound", className: "bg-purple-100 text-purple-700" },
 };
 
