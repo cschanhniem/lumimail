@@ -263,7 +263,7 @@ export function ComposeForm({
 				<div
 					className={cn(
 						"fixed right-6 top-6 z-50 rounded-lg px-4 py-3 text-sm font-medium shadow-lg",
-						toast.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white",
+						toast.type === "success" ? "bg-[var(--success)] text-white" : "bg-[var(--danger)] text-white",
 					)}
 				>
 					{toast.message}

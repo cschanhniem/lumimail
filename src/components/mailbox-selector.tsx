@@ -62,7 +62,7 @@ export function MailboxSelector() {
 						<p className="truncate text-sm font-medium text-[var(--ink)]">{selectedName}</p>
 						<p className="truncate text-[11px] text-[var(--ink-muted)]">{selectedEmail}</p>
 					</div>
-					<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+					<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-white">
 						<Mail className="h-4 w-4" />
 					</div>
 				</div>
@@ -95,14 +95,14 @@ export function MailboxSelector() {
 									active && "bg-[var(--accent-muted)]",
 								)}
 							>
-								<div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+								<div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--accent-muted)] text-[var(--accent)]">
 									{name.slice(0, 1).toUpperCase()}
 								</div>
 								<div className="min-w-0 flex-1">
 									<div className="flex items-center gap-2">
 										<p className="truncate text-sm font-medium text-[var(--ink)]">{name}</p>
 										{mb.isPrimary && (
-											<span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+											<span className="rounded-full bg-[var(--accent-muted)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
 												{t("primary")}
 											</span>
 										)}
@@ -113,11 +113,11 @@ export function MailboxSelector() {
 									</p>
 								</div>
 								{unread > 0 && (
-									<span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+									<span className="rounded-full bg-[var(--accent-muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
 										{unread > 99 ? t("countOverflow") : unread}
 									</span>
 								)}
-								{active && <Check className="h-4 w-4 text-blue-600" />}
+								{active && <Check className="h-4 w-4 text-[var(--accent)]" />}
 							</button>
 						);
 					})}
@@ -137,19 +137,19 @@ export function MailboxSelector() {
 								<p className="text-sm font-medium text-[var(--ink)]">{t("adminSettings")}</p>
 								<p className="text-xs text-[var(--ink-muted)]">{t("adminSettingsDesc")}</p>
 							</div>
-							{adminActive && <Check className="ml-auto h-4 w-4 text-blue-600" />}
+							{adminActive && <Check className="ml-auto h-4 w-4 text-[var(--accent)]" />}
 						</Link>
 						<button
 							type="button"
 							onClick={logout}
-							className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+							className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-[var(--danger)] hover:bg-[var(--danger)]/10"
 						>
-							<div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600">
+							<div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--danger)]/10 text-[var(--danger)]">
 								<LogOut className="h-4 w-4" />
 							</div>
 							<div>
 								<p className="text-sm font-medium">{t("logOut")}</p>
-								<p className="text-xs text-red-500/80">{t("signOutSession")}</p>
+								<p className="text-xs text-[var(--danger)]/80">{t("signOutSession")}</p>
 							</div>
 						</button>
 					</div>
