@@ -26,12 +26,12 @@ export function LanguageSwitcher() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className="fixed bottom-4 left-4 z-30">
       <select
         value={currentLocale}
         onChange={(e) => handleChange(e.target.value as Locale)}
         disabled={isPending}
-        className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 shadow-sm transition-colors hover:border-neutral-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
+        className="w-32 max-w-[calc(100vw-2rem)] rounded-lg border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-medium text-[var(--ink)] shadow-sm transition-colors hover:border-[var(--accent)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 disabled:opacity-50 sm:w-auto"
         aria-label="Select language"
       >
         {locales.map((locale) => (

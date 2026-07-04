@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { NextIntlClientProvider } from "next-intl";
@@ -22,6 +22,10 @@ export const metadata: Metadata = {
 	description: "Multi-tenant email on Cloudflare",
 };
 
+export const viewport: Viewport = {
+	colorScheme: "light dark",
+};
+
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
 	const locale = await getLocale();
 	const messages = await getMessages();
@@ -32,7 +36,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
 			<head>
 				<link rel="icon" type="image/x-icon" href="/favicon.ico"></link>
 			</head>
-			<body className={`${geistSans.variable} ${geistMono.variable} antialiased light`}>
+			<body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
 				<NextIntlClientProvider messages={messages}>
 					<Providers>
 						<LanguageSwitcher />
