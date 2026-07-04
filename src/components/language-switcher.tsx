@@ -26,7 +26,7 @@ export function LanguageSwitcher() {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 z-30">
+    <div className="fixed bottom-4 left-4 z-30 hidden sm:block">
       <select
         value={currentLocale}
         onChange={(e) => handleChange(e.target.value as Locale)}
