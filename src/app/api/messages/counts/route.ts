@@ -1,22 +1,16 @@
-import { and, eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { messages } from "@/db/schema";
-import { getCurrentUser } from "@/lib/auth/cookies";
-import { getEnv } from "@/lib/cloudflare";
+import { withUser } from "@/lib/api/handler";
+import { apiSuccess } from "@/lib/api/response";
 import { buildMessageCounts } from "./utils";
+import { messageAccessCondition } from "@/lib/auth/mailbox-access";
 
-export async function GET(request: Request) {
-	const env = getEnv();
-	const user = await getCurrentUser(env, request);
-	if (!user) {
-		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-	}
-
+export const GET = withUser(async ({ request, env, user }) => {
 	const url = new URL(request.url);
 	const mailboxId = url.searchParams.get("mailboxId");
 	const db = getDb(env);
-	const conditions = [eq(messages.userId, user.id)];
+	const conditions = [messageAccessCondition(db, user.id, user.organizationId, "read")];
 
 	if (mailboxId) {
 		conditions.push(eq(messages.mailboxId, mailboxId));
@@ -28,9 +22,10 @@ export async function GET(request: Request) {
 			direction: messages.direction,
 			status: messages.status,
 			read: messages.read,
+			sleeping: sql<boolean>`coalesce(${messages.snoozedUntil} > ${Math.floor(Date.now() / 1000)}, 0)`.mapWith(Boolean),
 		})
 		.from(messages)
 		.where(and(...conditions));
 
-	return NextResponse.json({ counts: buildMessageCounts(rows) });
-}
+	return apiSuccess({ counts: buildMessageCounts(rows) });
+});

@@ -1,78 +1,54 @@
 import { NextResponse } from "next/server";
-import { eq, desc, and, like, or, count, inArray } from "drizzle-orm";
-import { getEnv } from "@/lib/cloudflare";
-import { getCurrentUser } from "@/lib/auth/cookies";
+import { desc, asc, and, count, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { messages, messageLabels } from "@/db/schema";
-import { getContactDisplayNameMap } from "@/lib/contacts/service";
-import { normalizeEmailAddress } from "@/lib/email/address";
-import { getLatestEmailContent } from "@/lib/email/reply-content-utils";
+import { messages } from "@/db/schema";
+import { withUser } from "@/lib/api/handler";
+import { apiError, apiSuccess } from "@/lib/api/response";
+import { enrichMessagesWithContacts } from "@/lib/messages/enrich";
+import { messageAccessCondition } from "@/lib/auth/mailbox-access";
+import { messageListConditions } from "@/lib/messages/list-conditions";
 
-export async function GET(request: Request) {
-	const env = getEnv();
-	const user = await getCurrentUser(env, request);
-	if (!user) {
-		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-	}
+const DEFAULT_MESSAGE_LIMIT = 50;
+const MAX_MESSAGE_LIMIT = 100;
+// Leave room for user, organization, role, and draft-access parameters in the
+// access predicate under D1's 100 bound-parameter limit.
+const THREAD_COUNT_BATCH_SIZE = 80;
 
+export const GET = withUser(async ({ request, env, user }) => {
 	const url = new URL(request.url);
-	const direction = url.searchParams.get("direction");
-	const mailboxId = url.searchParams.get("mailboxId");
-	const status = url.searchParams.get("status");
-	const query = url.searchParams.get("q")?.trim();
-	const title = url.searchParams.get("title")?.trim();
-	const read = url.searchParams.get("read");
-	const starred = url.searchParams.get("starred");
-	const labelId = url.searchParams.get("labelId");
-	const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 100);
-	const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
+	const rawLimit = url.searchParams.get("limit");
+	const parsedLimit = rawLimit === null ? DEFAULT_MESSAGE_LIMIT : Number(rawLimit);
+	if (
+		rawLimit?.trim() === "" ||
+		!Number.isFinite(parsedLimit) ||
+		!Number.isInteger(parsedLimit) ||
+		parsedLimit < 1
+	) {
+		return apiError("Invalid limit", 400);
+	}
+	const limit = Math.min(parsedLimit, MAX_MESSAGE_LIMIT);
+
+	const rawOffset = url.searchParams.get("offset");
+	const offset = rawOffset === null ? 0 : Number(rawOffset);
+	if (
+		rawOffset?.trim() === "" ||
+		!Number.isFinite(offset) ||
+		!Number.isInteger(offset) ||
+		offset < 0
+	) {
+		return apiError("Invalid offset", 400);
+	}
 
 	const db = getDb(env);
-	const conditions = [eq(messages.userId, user.id)];
-	if (direction === "inbound" || direction === "outbound") {
-		conditions.push(eq(messages.direction, direction));
-	}
-	if (mailboxId) {
-		conditions.push(eq(messages.mailboxId, mailboxId));
-	}
-	if (status) {
-		conditions.push(eq(messages.status, status));
-	}
-	if (read === "read") {
-		conditions.push(eq(messages.read, true));
-	}
-	if (read === "unread") {
-		conditions.push(eq(messages.read, false));
-	}
-	if (starred === "true") {
-		conditions.push(eq(messages.starred, true));
-	}
-	if (query) {
-		const pattern = `%${query}%`;
-		const queryCondition = or(
-			like(messages.fromAddr, pattern),
-			like(messages.toAddr, pattern),
-			like(messages.subject, pattern),
-			like(messages.snippet, pattern),
-		);
-		/* v8 ignore next -- or() over always-defined like()s is never undefined; guard is defensive */
-		if (queryCondition) conditions.push(queryCondition);
-	}
-	if (title) {
-		conditions.push(like(messages.subject, `%${title}%`));
-	}
-	if (labelId) {
-		const labelledMessageIds = await db
-			.select({ messageId: messageLabels.messageId })
-			.from(messageLabels)
-			.where(eq(messageLabels.labelId, labelId));
-		const ids = labelledMessageIds.map((r) => r.messageId);
-		if (ids.length === 0) {
-			return NextResponse.json({ messages: [], total: 0, limit, offset });
-		}
-		conditions.push(inArray(messages.id, ids));
-	}
-	const where = and(...conditions);
+	const nowSeconds = Math.floor(Date.now() / 1000);
+	const conditions = messageListConditions(db, user, url.searchParams, nowSeconds);
+	if (conditions.error === "status") return NextResponse.json({ error: "Invalid message status" }, { status: 400 });
+	if (conditions.error) return apiError(conditions.error === "focus" ? "Invalid focus" : "Invalid age", 400);
+	const { where, snoozedView } = conditions;
+	// A woken message sorts by its wake time, so it returns to the top of the Inbox.
+	const order = snoozedView
+		? asc(messages.snoozedUntil)
+		: desc(sql`case when ${messages.snoozedUntil} <= ${nowSeconds} then ${messages.snoozedUntil} else ${messages.createdAt} end`);
 
 	const [totalRow] = await db
 		.select({ total: count() })
@@ -82,20 +58,32 @@ export async function GET(request: Request) {
 		.select()
 		.from(messages)
 		.where(where)
-		.orderBy(desc(messages.createdAt))
+		.orderBy(order)
 		.limit(limit)
 		.offset(offset);
-	const contactMap = await getContactDisplayNameMap(
-		env,
-		user.id,
-		rows.flatMap((message) => [message.fromAddr, message.toAddr]),
-	);
-	const enrichedRows = rows.map((message) => ({
+	const threadIds = [...new Set(
+		rows.flatMap((message) => message.threadId ? [message.threadId] : []),
+	)];
+	const threadCounts = new Map<string, number>();
+	for (let index = 0; index < threadIds.length; index += THREAD_COUNT_BATCH_SIZE) {
+		const batchThreadIds = threadIds.slice(index, index + THREAD_COUNT_BATCH_SIZE);
+		const threadCountRows = await db
+			.select({ threadId: messages.threadId, count: count() })
+			.from(messages)
+			.where(and(
+				messageAccessCondition(db, user.id, user.organizationId, "read"),
+				inArray(messages.threadId, batchThreadIds),
+			))
+			.groupBy(messages.threadId);
+		for (const row of threadCountRows) {
+			if (row.threadId) threadCounts.set(row.threadId, row.count);
+		}
+	}
+	const enrichedRows = await enrichMessagesWithContacts(env, user.id, rows);
+	const messagesWithThreadCounts = enrichedRows.map((message) => ({
 		...message,
-		snippet: getLatestEmailContent(message.snippet),
-		fromContactName: contactMap.get(normalizeEmailAddress(message.fromAddr)) ?? null,
-		toContactName: contactMap.get(normalizeEmailAddress(message.toAddr)) ?? null,
+		threadCount: message.threadId ? Math.max(1, threadCounts.get(message.threadId) ?? 1) : 1,
 	}));
 
-	return NextResponse.json({ messages: enrichedRows, total: totalRow?.total ?? 0, limit, offset });
-}
+	return apiSuccess({ messages: messagesWithThreadCounts, total: totalRow?.total ?? 0, limit, offset });
+});

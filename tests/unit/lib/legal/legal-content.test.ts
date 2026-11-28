@@ -1,0 +1,184 @@
+import { describe, expect, it } from "vitest";
+import { getExternalOAuthProvider } from "@/lib/email/external/oauth-provider";
+import {
+	LEGAL_OPERATOR,
+	googleScopeDisclosures,
+	homePurpose,
+	privacyPolicy,
+	termsOfService,
+	type LegalDocument,
+} from "@/lib/legal/legal-content";
+
+const documents: Array<[string, LegalDocument]> = [
+	["privacy policy", privacyPolicy],
+	["terms of service", termsOfService],
+];
+
+function fullText(document: LegalDocument): string {
+	return [
+		document.title,
+		document.summary,
+		...document.sections.flatMap((section) => [
+			section.title,
+			...(section.paragraphs ?? []),
+			...(section.items ?? []),
+			...(section.links ?? []).map((link) => link.label),
+		]),
+	].join("\n");
+}
+
+describe("legal content", () => {
+	it("discloses optional Jev processing with consent and a local alternative", () => {
+		const text = fullText(privacyPolicy);
+		expect(text).toContain("TypeSafe");
+		expect(text).toContain("8,000");
+		expect(text).toContain("explicit consent");
+		expect(text).toContain("Local tagging rules");
+		expect(privacyPolicy.sections.flatMap(section => section.links ?? []).map(link => link.href)).toContain("https://typesafe.ai/legal/privacy-policy");
+	});
+	it("names the operator, the service, and a contact address", () => {
+		expect(LEGAL_OPERATOR.company.trim()).not.toBe("");
+		expect(LEGAL_OPERATOR.service.trim()).not.toBe("");
+		expect(LEGAL_OPERATOR.contactEmail).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
+		expect(LEGAL_OPERATOR.origin).toMatch(/^https:\/\//);
+		for (const [, document] of documents) {
+			const text = fullText(document);
+			expect(text).toContain(LEGAL_OPERATOR.company);
+			expect(text).toContain(LEGAL_OPERATOR.service);
+			expect(text).toContain(LEGAL_OPERATOR.contactEmail);
+			expect(text).toContain(LEGAL_OPERATOR.origin);
+		}
+	});
+
+	it.each(documents)("%s has a valid, non-future ISO effective date", (_name, document) => {
+		expect(document.effectiveDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		const parsed = new Date(`${document.effectiveDate}T00:00:00Z`);
+		expect(Number.isNaN(parsed.getTime())).toBe(false);
+		expect(parsed.getTime()).toBeLessThanOrEqual(Date.now());
+	});
+
+	it.each(documents)("%s has unique kebab-case section ids and no empty content", (_name, document) => {
+		const ids = document.sections.map((section) => section.id);
+		expect(new Set(ids).size).toBe(ids.length);
+		for (const section of document.sections) {
+			expect(section.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+			expect(section.title.trim()).not.toBe("");
+			const blocks = [...(section.paragraphs ?? []), ...(section.items ?? [])];
+			expect(blocks.length).toBeGreaterThan(0);
+			for (const block of blocks) expect(block.trim()).not.toBe("");
+		}
+	});
+
+	it.each(documents)("%s has only https or mailto links and no unfilled placeholders", (_name, document) => {
+		for (const section of document.sections) {
+			for (const link of section.links ?? []) {
+				expect(link.href).toMatch(/^(https:\/\/|mailto:)/);
+				expect(link.label.trim()).not.toBe("");
+			}
+		}
+		expect(fullText(document)).not.toMatch(/TODO|TBD|lorem|\[[A-Za-z ]+\]|example\.com/i);
+	});
+
+	it("cross-checks its disclosed Google scopes against the scopes the OAuth code requests", () => {
+		const requested = getExternalOAuthProvider({
+			PUBLIC_APP_URL: LEGAL_OPERATOR.origin,
+			GOOGLE_OAUTH_CLIENT_ID: "id",
+			GOOGLE_OAUTH_CLIENT_SECRET: "secret",
+		} as unknown as CloudflareEnv, "google").scopes;
+
+		expect(googleScopeDisclosures.map((item) => item.scope).sort()).toEqual([...requested].sort());
+		const text = fullText(privacyPolicy);
+		for (const item of googleScopeDisclosures) {
+			expect(item.purpose.trim()).not.toBe("");
+			expect(text).toContain(item.scope);
+			expect(text).toContain(item.purpose);
+		}
+	});
+
+	it("carries the Google Limited Use commitment and the required data-handling disclosures", () => {
+		const text = fullText(privacyPolicy);
+		expect(text).toContain(
+			"adhere to the Google API Services User Data Policy, including the Limited Use requirements",
+		);
+		expect(text).toMatch(/does not read|do not read/i);
+		expect(text).toMatch(/advertis/i);
+		expect(text).toMatch(/sell/i);
+		expect(text).toMatch(/AI or machine-learning|machine learning/i);
+		expect(text).toMatch(/everyone with read access/i);
+		expect(text).toMatch(/myaccount\.google\.com\/permissions/);
+		expect(text).toMatch(/Disconnect/);
+	});
+
+	it("links to Google's user data policy and permission management", () => {
+		const hrefs = privacyPolicy.sections.flatMap((section) => (section.links ?? []).map((link) => link.href));
+		expect(hrefs).toContain("https://developers.google.com/terms/api-services-user-data-policy");
+		expect(hrefs).toContain("https://myaccount.google.com/permissions");
+		expect(hrefs).toContain(`mailto:${LEGAL_OPERATOR.contactEmail}`);
+	});
+
+	it("does not overstate the service as a backup and states the shared-mailbox visibility", () => {
+		const text = fullText(termsOfService);
+		expect(text).toMatch(/not a backup/i);
+		expect(text).toMatch(/as is/i);
+		expect(text).toMatch(/acceptable use/i);
+	});
+
+	it("states the application's purpose and Google API restrictions on the home page", () => {
+		const text = [
+			homePurpose.title,
+			...homePurpose.sections.flatMap((section) => [
+				section.title,
+				...(section.paragraphs ?? []),
+				...(section.items ?? []),
+			]),
+		].join(String.fromCharCode(10));
+		expect(homePurpose.title).toBe("What Lumimail is for");
+		expect(text).toContain(LEGAL_OPERATOR.company);
+		expect(text).toMatch(/shared email workspace/i);
+		expect(text).toMatch(/Gmail/);
+		expect(text).toMatch(/non-consensual intimate imagery/i);
+		expect(text).toMatch(/AI-generated/i);
+		expect(text).toMatch(/no image or video generation|does not generate images or video/i);
+		expect(text).toMatch(/never changes or deletes/i);
+		expect(text).toMatch(/advertis/i);
+		expect(text).toMatch(/sell/i);
+		const hrefs = homePurpose.sections.flatMap((section) => (section.links ?? []).map((link) => link.href));
+		expect(hrefs).toEqual(expect.arrayContaining(["/privacy", "/terms"]));
+		for (const href of hrefs) expect(href).toMatch(/^(\/|https:\/\/)/);
+	});
+
+	it("prohibits non-consensual intimate imagery in the terms and repeats the commitment in the privacy policy", () => {
+		expect(fullText(termsOfService)).toMatch(/non-consensual intimate imagery/i);
+		expect(fullText(privacyPolicy)).toMatch(/non-consensual intimate imagery/i);
+	});
+
+	it("opens the privacy policy with a plain summary of what is collected and why", () => {
+		const [first] = privacyPolicy.sections;
+		expect(first.id).toBe("summary");
+		expect(first.title).toBe("Summary");
+		const text = (first.items ?? []).join(" ");
+		expect(text).toMatch(/connect a Google account/i);
+		expect(text).toMatch(/only after you consent/i);
+		expect(text).toMatch(/do not sell/i);
+		expect(text).toMatch(/disconnect at any time/i);
+	});
+
+	it("lists every category of Google user data the import and send code actually touch", () => {
+		const section = privacyPolicy.sections.find((item) => item.id === "google-data-accessed");
+		expect(section?.title).toBe("Google data we access");
+		const text = (section?.items ?? []).join(" ");
+		expect(text).toMatch(/email address/i);
+		expect(text).toMatch(/subject/i);
+		expect(text).toMatch(/attachments/i);
+		expect(text).toMatch(/raw message/i);
+		expect(text).toMatch(/labels/i);
+		expect(text).toMatch(/history position/i);
+		expect(text).toMatch(/messages you send/i);
+		expect(text).toMatch(/contacts, calendar, Drive/i);
+	});
+
+	it("leads the home page purpose with the application's name and purpose", () => {
+		const [first] = homePurpose.sections;
+		expect(first.paragraphs?.[0]).toMatch(/^Lumimail is a shared email workspace/);
+	});
+});

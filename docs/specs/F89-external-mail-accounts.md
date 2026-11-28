@@ -1,0 +1,1078 @@
+# F89 — External Mail Accounts and Unified Mailbox
+
+> Status: Implemented; controlled provider/deployment evidence pending
+> Owner area: `src/app/(settings)/settings/external-accounts/`,
+> `src/app/api/external-accounts/`, `src/lib/email/external/`, `worker.ts`
+
+## 1. Problem & User Job
+
+Lumimail can receive mail for domains routed through Cloudflare, send through its
+configured outbound provider, and expose Lumimail mail to standard clients through
+the separate IMAP/SMTP bridge. It cannot connect in the opposite direction: a user
+cannot attach an existing Gmail, Microsoft 365, Outlook.com, or generic IMAP account
+and work with copies of that account's mail inside Lumimail.
+
+As a mailbox user, I want to connect an existing external account so that I can read
+and send its mail from Lumimail alongside my Lumimail-hosted mail. When I explicitly
+select retention, I also want Lumimail to preserve an exact original copy independently
+of ordinary remote mailbox cleanup.
+
+This feature is delivered in stages. The first stage is an OAuth-first, one-way
+aggregation MVP for Google and Microsoft. Later stages add generic IMAP/SMTP, broader
+historical coverage, provider push, and finally deliberate two-way synchronization.
+
+## 2. User Stories & Acceptance Criteria
+
+### 2.1 OAuth aggregation MVP
+
+- As a send-capable mailbox member, I can connect one Google or Microsoft account to
+  one Lumimail mailbox that I manage.
+  - Given recent Lumimail authentication and a provider authorization-code flow with
+    PKCE, when provider consent succeeds, then the callback is bound to the initiating
+    user, organization, mailbox, provider, and one-time state value.
+  - The connected external address must match the provider identity returned by the
+    provider. The browser may not assert or replace it.
+  - The consent screen must name the target Lumimail mailbox and disclose that every
+    Lumimail user with read access to that mailbox can read imported mail.
+- As a connected user, I can import new mail and an explicitly selected bounded recent
+  window.
+  - MVP choices are `from_now` and `recent_30_days`; the default is `from_now`.
+  - The initial import is asynchronous, resumable, paginated, and visible as a status;
+    the OAuth callback never waits for mailbox history to download.
+  - Incremental sync uses Gmail history cursors or Microsoft Graph folder delta links.
+  - If a cursor expires or becomes invalid, the account enters `resync_required`; it
+    does not silently present stale data as current.
+- As a mailbox reader, I can distinguish externally sourced mail from native Lumimail
+  mail and see its provider/account source.
+  - Inbox, Sent, and ordinary archived mail are imported in the MVP.
+  - Provider drafts, Spam/Junk, Trash/Deleted Items, arbitrary custom folders, and the
+    complete Gmail multi-label model remain later scope.
+- As a send-capable mailbox member, I can send through the external account.
+  - Google uses Gmail `messages.send`; Microsoft uses Graph `sendMail`.
+  - Lumimail's existing durable outbound job remains authoritative for accepted,
+    processing, sent, and failed state.
+  - The sender is fixed to the connected provider identity or to a provider-verified
+    send-as identity returned by the provider; arbitrary From addresses are rejected.
+  - A provider-created Sent copy is reconciled with the Lumimail outbound row rather
+    than displayed as a duplicate.
+- As the connection owner, I can pause, resume, reconnect, and disconnect my external
+  account.
+  - Pausing stops new import and external sending without deleting imported copies.
+  - Revocation/disconnection invalidates local use immediately and attempts provider
+    token revocation where supported. It never deletes remote mail.
+- As a connection owner, I can opt into exact-original retention for newly imported
+  messages.
+  - When enabled, the normalized message and attachments follow the existing storage
+    path and an exact provider MIME representation is retained in R2 with a checksum.
+  - Remote deletion never deletes a retained original in the aggregation MVP.
+  - The UI calls this `Retain original copies`, not `Backup`, because the MVP does not
+    yet guarantee complete history, restore, or legal/compliance retention.
+
+### 2.2 Expansion acceptance criteria
+
+- Generic accounts can connect through secure IMAP plus authenticated SMTP using a
+  separately deployed connector service and OAuth or app-specific credentials.
+- Full-history import is resumable and gives a count/date completeness report.
+- Provider push notifications can wake incremental sync, with scheduled polling kept
+  as reconciliation rather than removed.
+- Two-way mode is a separate explicit opt-in. Before it ships, read/unread, folder,
+  label, archive, and delete conflicts have deterministic rules, tombstones, loop
+  prevention, audit history, and recovery tests.
+- A feature described as `Backup` has a verified export and restore path, integrity
+  checks, retention/deletion controls, and a production rehearsal. Retaining objects
+  alone is not sufficient.
+
+## 3. Scope Boundaries
+
+### 3.1 OAuth aggregation MVP — in scope
+
+- Delegated OAuth connections for Google Gmail/Workspace and Microsoft
+  Outlook.com/Microsoft 365.
+- Authorization Code with PKCE, exact redirect URIs, one-time state, delegated refresh
+  tokens, least-privilege read/send scopes, and explicit consent.
+- One external account mapped to one existing Lumimail mailbox.
+- `from_now` or bounded 30-day initial import.
+- Queue-driven initial and incremental import for Inbox, Sent, and ordinary archive.
+- Provider-specific incremental cursors and idempotent remote-message mapping.
+- Per-connection outbound routing through Gmail API or Microsoft Graph.
+- Optional exact-original retention for messages imported after the option is enabled.
+- Connection status, last successful sync, bounded error category, pause, reconnect,
+  and disconnect controls.
+- Organization/mailbox authorization, security events, operational health, and
+  content-free logs.
+
+### 3.2 OAuth aggregation MVP — out of scope
+
+- Generic IMAP or SMTP credentials.
+- Full-history completeness, provider drafts, Spam/Junk, Trash/Deleted Items, custom
+  folder parity, and lossless Gmail multi-label editing.
+- Propagating local read, starred, archive, move, label, or delete changes remotely.
+- Provider push/webhook dependence; scheduled reconciliation is sufficient for MVP.
+- Tenant-wide Google domain delegation or Microsoft application permissions. MVP
+  connections are delegated and individually consented.
+- Importing contacts or calendars.
+- Claiming disaster-recovery, compliance archive, legal hold, or immutable/WORM
+  guarantees.
+
+### 3.3 Expansion stages
+
+| Stage | Outcome | Principal additions |
+|---|---|---|
+| 1 — OAuth aggregation MVP | Google/Microsoft mail in Lumimail with provider send | Delegated OAuth, bounded import, delta/history sync, retained originals option |
+| 2 — Generic mail gateway | Other providers can participate | Companion connector, IMAP UID/UIDVALIDITY sync, OAuth/XOAUTH2 or app credentials, SMTP submission |
+| 3 — Complete mirror/archive | Broader faithful local copy | Full history, all folders, Gmail labels, push wakeups, completeness report, export/restore rehearsal |
+| 4 — Two-way synchronization | Lumimail can control remote state | Remote mutations, conflict policy, tombstones, loop prevention, recovery and audit |
+
+## 4. Architecture and Data Model
+
+### 4.1 Runtime architecture
+
+```text
+Google Gmail API / Microsoft Graph
+                 |
+                 | HTTPS + delegated OAuth
+                 v
+        Worker routes and Cron trigger
+                 |
+                 v
+          EXTERNAL_SYNC_QUEUE  ---> external-sync DLQ
+                 |
+                 +----> D1 connection, cursor, mapping, message metadata
+                 |
+                 +----> R2 attachments and optional retained original MIME
+
+Later generic providers
+                 |
+                 | IMAPS / SMTP submission
+                 v
+     separately deployed connector service
+                 |
+                 +----> mailbox-scoped Lumimail HTTPS sync API / queues
+```
+
+The OAuth MVP stays inside the Worker because Google and Microsoft expose HTTPS APIs.
+Cron schedules bounded reconciliation, and a dedicated Queue isolates provider
+throttling and retries from native inbound and outbound delivery. The existing
+client-facing `imap-bridge` remains a separate concern.
+
+Generic IMAP is placed in a companion service in Stage 2. Cloudflare Workers can make
+outbound TCP connections, but long-lived IMAP IDLE sessions, provider-specific socket
+behavior, and large historical traversals should not share a request-oriented Worker
+lifecycle. The service must use only authenticated, mailbox-scoped Lumimail HTTPS
+contracts and must not receive direct D1 or R2 credentials.
+
+### 4.2 Proposed tables
+
+Names are provisional until implementation begins. Provider-specific opaque values
+must be treated as untrusted bounded strings.
+
+| Table | Important columns | Notes |
+|---|---|---|
+| `external_accounts` | id, organizationId, mailboxId, ownerUserId, provider, externalAddress, encryptedRefreshToken, tokenKeyVersion, status, importMode, retainOriginal, lastSyncAt, lastErrorCode, createdAt, revokedAt | One delegated identity mapped to one Lumimail mailbox; no access token or plaintext secret is returned by APIs |
+| `external_sync_cursors` | accountId, remoteFolderKey, cursorType, encrypted/opaque cursor, updatedAt | Gmail history ID or Microsoft delta link; unique per account/folder |
+| `external_messages` | accountId, remoteMessageId, remoteThreadId, remoteFolderKey, lumimailMessageId, remoteRevision, firstSeenAt, lastSeenAt, removedAt | Unique `(accountId, remoteMessageId)` is the primary deduplication boundary |
+| `external_sync_jobs` | id, accountId, kind, status, cursorBefore, attempts, nextAttemptAt, errorCode, createdAt, completedAt | Durable source for initial import, incremental sync, resync, and reconciliation |
+| `external_originals` | accountId, remoteMessageId, lumimailMessageId, r2Key, sha256, size, retainedAt | Present only when exact-original retention is enabled |
+
+Existing `messages`, `message_bodies`, and `attachments` remain the user-facing mail
+store. `messages` needs an external source/account reference or equivalent normalized
+join so source filtering and deletion policy never rely on an address or RFC
+`Message-ID`. RFC `Message-ID` remains useful for threading and Sent reconciliation,
+but is not unique or reliable enough for import idempotency.
+
+Tokens require authenticated encryption such as AES-GCM using a versioned key supplied
+as a Worker secret. Hashing is not sufficient because Lumimail must recover refresh
+tokens. OAuth client secrets and encryption keys remain deployment secrets; token
+ciphertext, nonce, provider, key version, and minimal lifecycle metadata may be stored
+in D1. Token key rotation must decrypt with the prior version and rewrite with the
+current version without exposing plaintext to logs or responses.
+
+## 5. API Contract
+
+Final names may change to follow the implementation's route grouping, but the bounded
+behavior is fixed here.
+
+| Method | Route | Auth | Request / result | Errors |
+|---|---|---|---|---|
+| GET | `/api/external-accounts` | signed-in user + live mailbox membership | Connections visible to the user; secret-free status only | 401, 403 |
+| POST | `/api/external-accounts/oauth/start` | recent session + mailbox `manage` and `send` capability | Provider, mailboxId, importMode, retainOriginal; returns exact provider redirect | 400, 401, 403, 409, 429, 503 |
+| GET | `/api/external-accounts/oauth/callback` | one-time state + provider code | Completes exact initiating connection and queues initial sync. Reads exactly one `state` and one `code`; other provider-appended parameters (for example Google `scope`, `authuser`, `prompt`, `hd`, `iss`, or Microsoft `session_state`) are ignored, never trusted. Redirects to `/settings/external-accounts?connected=<id>` or `?error=<code>` | 303 redirect with bounded error code; 503 only when the public origin is misconfigured |
+| GET | `/api/external-accounts/:id` | connection owner or authorized mailbox manager | Secret-free provider identity, mode, progress, health, timestamps | 401, 403, 404 |
+| PATCH | `/api/external-accounts/:id` | connection owner + current mailbox `manage`; recent auth for retention expansion | Pause/resume, import mode where safe, future-import retention toggle | 400, 401, 403, 404, 409 |
+| POST | `/api/external-accounts/:id/reconnect` | connection owner + recent session | Begins a new bound OAuth flow | 401, 403, 404, 409, 429 |
+| DELETE | `/api/external-accounts/:id` | connection owner + recent session | Revokes local connection; imported mail retained unless separately deleted | 401, 403, 404, 409 |
+| POST | `/api/external-accounts/:id/sync` | connection owner or mailbox manager | Idempotently requests bounded sync; does not run it inline | 401, 403, 404, 409, 429 |
+
+Every collection/detail operation is constrained by organization, live mailbox
+membership, connection ownership/capability, and opaque ID. Unauthorized objects
+return `404` where enumeration would disclose another tenant's account.
+
+The existing compose/send API gains an optional authorized external connection ID.
+The server derives provider and From identity from that connection; clients cannot
+supply provider credentials or override the connected address.
+
+## 6. Synchronization and Delivery Contract
+
+### 6.1 Import
+
+1. OAuth completion stores the encrypted refresh token and an inactive cursor in one
+   committed account state, then creates an idempotent initial-sync job.
+2. Queue workers claim one job/account lease so concurrent Cron, manual, and callback
+   triggers cannot run overlapping imports for the same connection.
+3. Each provider page is bounded. Remote IDs are inserted/upserted through the unique
+   external mapping before notification side effects are emitted.
+4. A normalized message uses the existing sanitization, threading, attachment, and
+   mailbox authorization rules. Provider content is no more trusted than SMTP input.
+5. The next cursor commits only after the page's message mappings and Lumimail rows
+   commit successfully. A retry may repeat provider reads but must not duplicate mail.
+6. Provider removal events mark the external mapping as removed. In the aggregation
+   MVP they do not delete the Lumimail message or retained original.
+7. Scheduled reconciliation enqueues accounts due for sync. Provider rate limits use
+   classified retry with bounded exponential backoff and jitter; authorization failure
+   changes the account to `reconnect_required` and stops automatic retry.
+
+### 6.2 Outbound
+
+1. Compose authorization verifies live send access to the Lumimail mailbox and active
+   ownership/use permission for the external connection.
+2. The immutable outbound snapshot records the external account ID and derived sender
+   identity, never a token.
+3. The existing durable outbound consumer selects the Google or Microsoft adapter,
+   obtains a short-lived access token, and sends through the provider HTTP API.
+4. Provider acceptance updates the existing message/job lifecycle. Ambiguous provider
+   outcomes remain visible and follow the existing operator-confirmed recovery policy.
+5. Later import of the provider Sent item reconciles through provider ID where returned,
+   otherwise RFC `Message-ID` plus a bounded sender/recipient/time match. An ambiguous
+   match is retained and flagged rather than silently merging unrelated messages.
+
+### 6.3 Architecture deepening contract
+
+This change preserves the Stage 1 user contract while concentrating synchronization,
+provider, credential, and verification behavior behind deeper module interfaces.
+
+- Exactly one `pending` or `processing` sync job may exist for an external account.
+  D1 enforces this invariant rather than relying on check-then-insert behavior.
+- A new request reuses the active job. Stronger intent wins in this order:
+  `resync`, `initial`, then `incremental`/`reconcile`. If stronger intent arrives while
+  a page is processing, that page finishes before the same active job returns to
+  `pending` with the stronger intent.
+- Queue payload version 1 remains unchanged and contains only the job ID. Existing
+  account, message, cursor, and completed-job data remains valid.
+- Sync-job creation, coalescing, claim, wake-up, retry scheduling with jitter,
+  completion, failure, and enqueue recovery live behind one durable job interface.
+- A Sync Page keeps its provider cursor as the final progress decision. Each
+  normalized message, external mapping, and retained-original metadata is prepared
+  and committed in a bounded idempotent D1 batch before the next message is
+  materialized; the cursor mutations commit only after every message succeeds.
+  Required R2 objects are written first and compensated when that message's D1 batch
+  fails. If a later message or the final cursor batch fails, earlier message writes
+  remain durable and the unchanged cursor makes the replay safe through the existing
+  account/remote-message uniqueness.
+- Google and Microsoft each provide one provider adapter covering delegated OAuth,
+  bounded synchronization, and sending. Provider selection happens once per workflow;
+  provider-specific folders, cursors, endpoints, and response validation remain inside
+  the selected adapter.
+- Provider adapters receive short-lived access tokens only. A credential-custody
+  module exclusively owns Delegated Credential encryption, account identity binding,
+  refresh, and compare-and-set rotation, and returns typed outcomes. The calling sync
+  or outbound workflow owns account and job lifecycle transitions.
+- Tests use the same durable job and page interfaces as callers. Database invariants,
+  transactions, conflicts, lease expiry, and coalescing are verified with real
+  SQLite/D1 semantics; implementation-order mocks replaced by those tests are removed.
+
+Edge and error behavior:
+
+- Competing job creation cannot produce two active jobs for one account.
+- A weaker request never downgrades pending or in-flight work.
+- A crashed or expired worker lease makes the active job claimable without creating a
+  second active job. This holds for a `processing` job whose `lease_until` has passed:
+  the queue consumer may claim it, scheduled reconciliation re-enqueues it, and a manual
+  sync request wakes it. A `processing` job with a live lease is never claimed, woken, or
+  stolen.
+- Transient provider failures use bounded exponential backoff with jitter; tests assert
+  bounds, not one exact delay. Backoff grows with consecutive failures, never with the
+  number of pages already processed.
+- A message that crashes or fails the sync on three consecutive attempts is skipped, recorded
+  in `external_message_skips`, and stays skipped; the rest of the page imports. The job
+  records the message in flight before materializing it, so a worker killed mid-message
+  names its culprit to the next claim.
+- Provider throttling and outages never count against a message. An unexpected failure is
+  retried with backoff and ends the job only after five consecutive failures with no
+  successful page between them.
+- A failure the system can recover from (`error`, `resync_required`) schedules an automatic
+  resync after 5 minutes, then 30 minutes, 2 hours, and 12 hours. When those are spent the
+  account stays put for a person. An authorization loss (`reconnect_required`) never
+  retries automatically.
+- A provider page replay may repeat reads and R2 writes but cannot duplicate Lumimail
+  messages, mappings, or Retained Originals.
+- Any message, mapping, metadata, or D1 commit failure leaves the prior cursor visible.
+- A page may contain durable earlier message writes after a later failure; replaying
+  the unchanged page updates those mappings idempotently and never creates a second
+  Lumimail message.
+- Delegated Credential revocation becomes a typed credential outcome; no adapter or
+  caller receives plaintext refresh credentials.
+- This change adds no providers, generic IMAP ingestion, provider push, or two-way
+  synchronization.
+
+## 7. UI/UX
+
+- Add `External accounts` to the unified Settings shell for eligible mailbox users.
+- Connection flow: choose provider, choose an authorized target mailbox, select
+  `from now` or `last 30 days`, optionally select `Retain original copies`, review the
+  mailbox-sharing disclosure, reauthenticate, then leave Lumimail for provider consent.
+- Connection cards show provider, external address, target mailbox, owner, import mode,
+  retention choice, status, progress, last successful sync, and a bounded actionable
+  error. They never show scopes as a substitute for plain-language consent.
+- Statuses: `connecting`, `initial_sync`, `active`, `paused`, `reconnect_required`,
+  `resync_required`, `error`, and `disconnected`.
+- Imported message rows and details show a source badge such as `Google · user@example.com`.
+- Compose offers the external sender only when the connection is active and the current
+  user has send capability. If the connection expires after draft creation, sending
+  fails clearly without silently falling back to another provider or identity.
+- Retention copy explains: "Keeps exact originals imported after this is enabled.
+  This is not yet a complete or independently verified backup."
+- Initial import and sync failures are never rendered as an empty mailbox.
+- All controls require keyboard access, screen-reader labels, localized copy, and usable
+  layouts at 390 px and desktop widths.
+
+## 8. Current Behavior
+
+- A manager can connect delegated Google or Microsoft identities from External
+  accounts settings after recent authentication and the mailbox-sharing disclosure.
+- OAuth uses PKCE, one-time session-bound state, live callback authorization, provider
+  identity lookup, encrypted refresh-token storage, and exact reconnect binding.
+- A dedicated queue and minute reconciliation trigger import bounded Google Gmail
+  history or Microsoft Inbox/Sent/Archive delta pages into the existing normalized
+  D1/R2 mail store. Provider removals preserve local content.
+- Compose can select an active accessible external identity. The durable outbound job
+  stores only the external account ID and derived sender; its consumer refreshes the
+  delegated token and sends through Gmail `messages.send` or Graph `sendMail`.
+- Exact original MIME retention is prospective, opt-in, checksummed, and independent
+  from provider deletion. It is explicitly not presented as a complete backup.
+- The separate F13/F52 bridge exposes Lumimail mail to IMAP/SMTP clients. It does not
+  import mail from an external server.
+- Generic IMAP/SMTP ingestion, full-history completeness, restore, provider push, and
+  two-way remote state mutation remain the staged expansion described above.
+- D1 now enforces one active Sync Job per External Account. OAuth completion, manual
+  sync, resume, and scheduled reconciliation use one creation/coalescing module;
+  stronger intent is retained without creating overlapping work, and retries use
+  bounded exponential jitter.
+- Google and Microsoft behavior is selected through one provider adapter seam covering
+  OAuth, bounded page retrieval, and outbound sending. Stored Delegated Credentials are
+  opened, refreshed, and compare-and-set rotated only by credential custody; adapters
+  receive short-lived access tokens.
+- A Sync Page defers provider MIME materialization and prepares one normalized
+  message, mapping, attachment, and Retained Original at a time. Each message batch
+  releases its parsed body and statement values before the next message is loaded;
+  cursor mutations are committed in one final D1 batch after all messages succeed.
+  R2 objects written for a message are compensated if that message's preparation or
+  D1 commit fails.
+
+## 9. Error States
+
+| Condition | User-visible result | Runtime behavior |
+|---|---|---|
+| OAuth state missing, expired, replayed, or bound to another session/mailbox | Connection refused; restart connection | No token stored; security event without code/token |
+| Provider identity differs from expected callback identity | Connection refused | No browser-supplied identity accepted |
+| Provider denies consent (`error` parameter) | `Authorization was cancelled or denied by the provider` | `?error=provider-denied`; provider error description is discarded |
+| Callback lacks a single `state` and `code` | `The provider response was incomplete or expired` | `?error=invalid`; nothing is consumed |
+| Session is no longer recently authenticated at callback | `Your password confirmation expired` | `?error=reauthenticate`; state is not consumed |
+| No active organization or lost mailbox management at callback | `You no longer have permission to connect an account to that mailbox` | `?error=forbidden` |
+| Account already connected to the mailbox | `That account is already connected` | `?error=already-connected` |
+| Unexpected provider or storage failure during completion | `The provider could not be reached` | `?error=unavailable`; content-free |
+| User loses mailbox access during OAuth | Connection refused | Callback rechecks live authorization |
+| Refresh token rejected/revoked | `Reconnect required` | Stop import/send; do not retry credentials indefinitely |
+| Provider throttles or is temporarily unavailable | `Sync delayed` | Classified bounded retry; prior mail remains readable |
+| Cursor/delta link invalid or expired | `Resync required` | Preserve local data; require bounded resync path |
+| Queue enqueue fails after connection commit | `Sync pending` | Durable D1 job remains discoverable by scheduled reconciliation |
+| Message page partially fails | No false success or cursor advance; earlier imports may remain visible | Retryable provider failures use the existing retry path; generic D1/application failures remain terminal until existing recovery replays the page |
+| Provider message larger than 10 MiB of raw MIME | Message is not imported; skipped count is logged, not yet shown in the UI | Skipped before download when the provider's size estimate is known, otherwise on download; the page and cursor still complete |
+| Original MIME write fails when retention is selected | Message not claimed as retained | Retry or expose retention failure; never mark checksum/object complete |
+| External send provider returns a permanent denial | Existing outbound job/message becomes failed | No fallback sender/provider |
+| Provider accepts send but response is lost | Ambiguous delivery warning | Existing explicit recovery contract applies; possible duplicate disclosed |
+| Disconnect token revocation fails | Connection locally unusable, revocation pending | Retry bounded provider revocation; do not restore local access |
+
+## 10. Edge Cases
+
+- Two users try to attach the same provider account to the same Lumimail mailbox.
+  Return `409`; do not create competing cursors.
+- The same external account may be attached to a different Lumimail organization only
+  after an explicit second consent and disclosure. Cross-tenant mappings never share
+  tokens, cursors, or remote-message rows.
+- One external message can lack or duplicate an RFC `Message-ID`; provider remote ID
+  remains authoritative for deduplication.
+- Gmail labels are many-to-many while Lumimail folders are primarily one status. MVP
+  derives Inbox/Sent/archive presentation without claiming editable label parity.
+- A message moves remotely between imported folders. Its external mapping and Lumimail
+  row remain stable; a move must not manufacture a second message.
+- A provider deletion arrives after exact-original retention. The retained copy stays;
+  the source metadata records the remote removal.
+- Retention enabled later is prospective in the MVP. The UI must not imply that already
+  imported messages were backfilled.
+- An account with more messages than one job budget continues from its cursor through
+  later queue jobs; it never increases one invocation's limits to finish inline.
+- Token refresh races use one account lease and compare-and-set token versioning so an
+  older completion cannot overwrite a rotated refresh token.
+- Connection ownership loss, user deletion, mailbox deletion, organization switch, and
+  mailbox-role downgrade fail closed and stop new provider access.
+- Provider HTML, attachment names/types, header values, MIME nesting, and message sizes
+  retain the existing inbound safety and omission policies.
+- A message whose raw MIME exceeds 10 MiB (`MAX_EXTERNAL_MIME_BYTES`) is skipped, never
+  imported and never a page failure. The Worker holds the provider response, its decoded
+  bytes, and the parsed message together, so a larger message can exceed the isolate
+  memory limit and repeatedly kill the queue consumer. The skip is logged content-free
+  (account ID and folder only). Gmail's `sizeEstimate` skips it before download; Graph and
+  any message without an estimate are skipped when the download exceeds the cap. Microsoft
+  downloads without a declared length are still fully buffered before the cap applies.
+
+## 11. Permissions, Privacy, and Security
+
+- A user may connect only while they hold live mailbox `manage` and `send` capabilities.
+  The connection is owned by the consenting Lumimail user. Organization admin status
+  alone does not permit an admin to obtain or use another user's provider token.
+- Imported content is readable by every user with read access to the target Lumimail
+  mailbox. This is disclosed before provider consent and rechecked at callback.
+- The MVP requests provider read and send scopes, not remote mailbox mutation scopes.
+  Scope expansion for two-way sync requires a new consent and cannot occur silently.
+- OAuth uses exact registered redirects, Authorization Code with PKCE S256, one-time
+  expiring state, issuer/provider binding, and login-CSRF protection. Callback errors
+  never echo authorization codes, tokens, or provider response bodies.
+- Refresh tokens are encrypted at rest with versioned authenticated encryption. Access
+  tokens are short-lived and not persisted unless a later implementation proves a
+  bounded operational need. Secrets never enter queue payloads, outbound snapshots,
+  analytics, logs, webhooks, browser storage, or API responses.
+- Account, cursor, message, sync-job, and retained-object access is organization- and
+  mailbox-scoped. Cross-tenant tests are mandatory on every endpoint and worker path.
+- Provider adapters enforce HTTPS and fixed official hosts. A user cannot supply an
+  arbitrary token endpoint, API base URL, redirect URL, IMAP host, or SMTP host in the
+  OAuth MVP.
+- Stage 2 generic hosts require DNS/IP validation against loopback, link-local, private,
+  metadata, and Cloudflare/internal destinations on every resolution/connect attempt,
+  plus certificate verification, port allowlists, size/time bounds, and DNS-rebinding
+  defenses.
+- Security events record connection, reconnect, pause, resume, retention expansion,
+  disconnect, scope change, and repeated authorization failure without addresses,
+  subjects, message content, tokens, codes, cursors, or provider error bodies.
+- Provider terms, OAuth verification, privacy policy, data deletion, and organizational
+  admin-consent requirements are release gates, not documentation-only tasks.
+
+## 12. Test and Verification Plan
+
+### 12.1 Automated tests
+
+| Layer | Coverage |
+|---|---|
+| Unit | provider normalization, folder mapping, dedup keys, cursor transitions, retry classification, exact-original checksums, sender binding, Sent reconciliation |
+| Crypto | AES-GCM round trip, wrong key/AAD/tampering refusal, version rotation, plaintext exclusion, concurrent refresh compare-and-set |
+| Route | start/callback PKCE and state lifecycle, callback authorization recheck, connection CRUD ownership, recent-auth boundaries, non-enumeration, validation and rate limits |
+| D1 integration | unique account/remote IDs, account lease, final cursor commit, idempotent replay after partial page progress, remote move/removal, prospective retention, tenant isolation |
+| Queue | initial paging, incremental sync, retry/DLQ, cursor expiry, reconciliation of committed-but-not-enqueued jobs, revoked-account refusal |
+| Provider contract | recorded Google and Microsoft success/error/throttle/expired-cursor fixtures without live tokens or message content in the repository |
+| Existing mail pipeline | sanitizer, threading, attachment bounds, notifications, search, folder queries, and all-mailbox scope accept external imports without authorization regressions |
+| Browser | connect disclosure, mocked provider callback, progress/error/reconnect/pause/disconnect, source badge, compose sender, mobile and accessibility |
+
+All new/changed runtime files require 100% configured statement, branch, function, and
+line coverage. Tests may not rely on a developer's external mailbox or persist live
+provider credentials.
+
+### 12.2 Provider and production evidence
+
+- Separate disposable Google and Microsoft test tenants/accounts complete real delegated
+  OAuth with only the documented scopes.
+- Seed a uniquely identifiable message and attachment, perform initial and incremental
+  sync, and verify exactly one authorized Lumimail row, exact bytes, source mapping,
+  threading metadata, and no access from an unrelated mailbox/user.
+- Repeat the same provider change after replaying the queue message and after a simulated
+  transport failure; verify no duplicate.
+- Send one controlled message through each provider and verify durable state plus one
+  reconciled Sent row.
+- Revoke consent at the provider, prove import/send stops and `reconnect_required` is
+  visible, then reconnect without duplicating prior mail.
+- Enable retained originals before a controlled import, verify R2 SHA-256/size and
+  download bytes, delete the provider copy, and prove the retained Lumimail copy remains.
+- Run `npm run verify`, `npm run e2e`, OpenNext production build, fresh-D1 migration,
+  deployment dry run, audits, and public/authenticated smoke appropriate to the change.
+
+## 13. Delivery Plan and Estimates
+
+Estimates are planning ranges for one experienced engineer and include specification,
+tests, UI, provider failure handling, and controlled evidence. They are not commitments.
+
+| Slice | Expected work | Estimate |
+|---|---|---:|
+| Foundation | schema, encrypted token vault, OAuth state/PKCE, account UI/API, sync jobs and health | 2–3 weeks |
+| Google MVP | Gmail bounded import/history sync, normalization, provider send, Sent reconciliation | 2–3 weeks |
+| Microsoft MVP | Graph bounded import/delta sync, normalization, provider send, Sent reconciliation | 2–3 weeks |
+| Retained originals and hardening | MIME retention, integrity metadata, revocation/resync, isolation and production evidence | 2–3 weeks |
+| **OAuth aggregation MVP total** | overlapping work combined | **8–12 weeks** |
+| Generic IMAP/SMTP | connector host, safe endpoint policy, UID/UIDVALIDITY sync, OAuth/app credentials, deployment | +4–7 weeks |
+| Full history/archive | all folders/labels, completeness reports, export/restore and retention rehearsal | +3–6 weeks |
+| Two-way sync | remote mutations, conflicts, tombstones, loop prevention, recovery/audit | +6–10 weeks |
+
+### Recommended implementation order
+
+1. Build the shared account, token, job, cursor, message-mapping, and UI foundation.
+2. Ship Google against disposable accounts and stabilize the common adapter contract.
+3. Add Microsoft without weakening provider-specific semantics into a false universal
+   model.
+4. Complete retained-original integrity and production evidence before calling Stage 1
+   shipped.
+5. Design the generic connector as a separate Stage 2 spec based on the proven adapter
+   contract.
+6. Treat complete archive and two-way sync as separate acceptance gates; neither is an
+   automatic consequence of successful importing.
+
+## 14. Decisions and Open Questions
+
+### Decisions
+
+- Decision 2026-08-19: deepen F89 in two verified slices: durable jobs/page application
+  first, then provider adapters/credential custody. Complete both without expanding the
+  Stage 1 product scope.
+- Decision 2026-08-19: enforce one active Sync Job per External Account in D1 and
+  coalesce stronger intent onto that job while preserving queue payload version 1.
+- Decision 2026-08-19: provider adapters receive only short-lived access tokens;
+  credential custody owns stored Delegated Credentials and returns typed outcomes,
+  while workflows own lifecycle transitions.
+
+- Decision 2026-08-15: Google and Microsoft use their HTTPS APIs rather than treating
+  IMAP/SMTP as the preferred provider path. Their incremental APIs and delegated OAuth
+  provide clearer cursor, throttling, folder, and error contracts.
+- Decision 2026-08-15: MVP synchronization is one-way into Lumimail. Local message-state
+  changes never mutate the remote account, avoiding premature delete/move conflicts.
+- Decision 2026-08-15: outbound mail uses the connected provider so recipient-visible
+  identity and the provider's Sent store remain coherent.
+- Decision 2026-08-15: initial import is bounded to from-now or 30 days. Full-history
+  completeness is a later archive stage.
+- Decision 2026-08-15: retained original copies are opt-in and prospective. They are not
+  marketed as backup until export/restore and completeness are verified.
+- Decision 2026-08-15: delegated connection tokens belong to the consenting Lumimail
+  user and cannot be appropriated solely through organization administration.
+- Decision 2026-08-15: generic IMAP/SMTP uses a companion service; the OAuth HTTP MVP
+  stays on Workers, Queues, D1, and R2.
+- Decision 2026-08-15: scheduled polling/reconciliation is authoritative in the MVP;
+  provider push is a later latency optimization.
+
+### Deferred decisions
+
+- Implemented scope decision: Google requests OpenID/email plus Gmail read-only and
+  send; Microsoft requests OpenID/email/offline access, User.Read, Mail.Read, and
+  Mail.Send. No message-mutation scope is requested.
+- Implemented multiplicity decision: a mailbox may expose multiple active external
+  senders, each bound to its consenting owner; compose defaults to the native identity
+  and requires explicit external selection.
+- Implemented execution decision: provider pages are capped at ten messages, queue
+  jobs lease one account, and minute reconciliation recovers committed work and polls
+  active accounts without depending on provider push.
+- Implemented retention decision: originals use a dedicated
+  `external-originals/<organization>/<account>/` prefix and D1 integrity ledger in the
+  existing bucket. A separate compliance/archive bucket remains Stage 3 scope.
+- Decide the product behavior when the consenting user leaves an organization but the
+  organization wants to retain already imported mail. New provider access must stop;
+  retained local data ownership and deletion require explicit policy.
+- Before Stage 2, select connector hosting, mutual authentication, certificate
+  provisioning, and whether the existing `imap-bridge` package is extended or kept as a
+  separate deployable process.
+
+## 15. References
+
+- [Gmail synchronization](https://developers.google.com/workspace/gmail/api/guides/sync)
+- [Gmail sending](https://developers.google.com/workspace/gmail/api/guides/sending)
+- [Google Workspace third-party client OAuth guidance](https://support.google.com/a/answer/9003945)
+- [Microsoft Graph message delta](https://learn.microsoft.com/en-us/graph/api/message-delta?view=graph-rest-1.0)
+- [Microsoft Graph sendMail](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0)
+- [Microsoft IMAP/POP/SMTP OAuth](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth)
+- [Cloudflare Workers TCP sockets](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/)
+- [F33 outbound providers](./F33-outbound-mail-providers.md)
+- [F52 IMAP/SMTP bridge contract](./F52-imap-smtp-bridge-contract-repair.md)
+- [F63 R2 retention](./F63-r2-retention-and-cleanup.md)
+
+## 16. Bug / Change Log
+
+### 2026-10-01 — Tell the owner when sync needs attention
+
+Type: Feature
+
+Summary:
+
+- A banner in the mail and settings shells tells a connection's owner when their account
+  needs a reconnect (danger), stopped after the automatic retries ran out (danger), is
+  recovering by itself with the time of the next retry (warning), or has messages that could
+  not be imported (info). It reads the same query as the External accounts page and is
+  hidden on that page, where the card carries the same explanation.
+- `GET /api/external-accounts` adds `nextRetryAt`, `autoRetryExhausted`, and
+  `skippedMessageCount`. The retry schedule stays on the server; the client only formats it.
+- The connection card shows messages not imported and the recovery state.
+
+Reason:
+
+- Automatic recovery is only trustworthy if the owner can see it working, and the reconnect
+  case, which only a person can fix, was silent.
+
+Impact:
+
+- Only the connection's owner is notified. Not shown: an Operations Center section for
+  stale or errored accounts, which is deferred.
+
+Verification plan:
+
+- Pure-logic unit tests for every banner rule and ordering; a real-SQLite test that the
+  skipped count is per account; E2E for the banner in both shells, its absence for healthy
+  accounts and non-owners, and its absence on the External accounts page.
+
+Results:
+
+- `npm run verify` passed 2026-10-01 (2,797 unit tests, coverage and CRAP gates). The
+  external-accounts Playwright spec passed 7 of 7. The banner was checked visually in light
+  and dark themes. Not yet deployed; depends on migration `0042` from the self-healing change.
+
+### 2026-10-01 — Self-healing external sync
+
+Type: Behavior Change
+
+Summary:
+
+- Migration `0042` adds per-job failure tracking, per-account retry scheduling, and the
+  `external_message_skips` ledger.
+- A message that fails three consecutive attempts is skipped and recorded; the page and
+  account carry on. Oversized messages are recorded in the same ledger.
+- Unexpected failures retry with backoff and give up only after five consecutive failures.
+- `error` and `resync_required` accounts are retried automatically on a backoff schedule
+  (5 min, 30 min, 2 h, 12 h); reconnecting resets the schedule. A mid-sync authorization
+  loss now goes to `reconnect_required` instead of `error`.
+- Retry backoff is driven by consecutive failures; it previously used the page count, so
+  after a few pages every retry waited close to an hour.
+
+Reason:
+
+- One failing message could block an account permanently, an `error` account never
+  recovered without a click, and neither case told anyone why or when.
+
+Impact:
+
+- An account heals itself in the common failure cases. A skipped message is not imported;
+  it is recorded, and surfacing the count and a banner is the follow-up change.
+- A systemic fault (for example a database outage) cannot skip many messages: failures that
+  are not tied to one message end the job after five tries, and a skip needs three strikes
+  on the same message.
+
+Verification plan:
+
+- Real-SQLite tests for the strike transitions, retry scheduling, and due-account
+  reconciliation; unit tests for failure classification, skip handling, the in-flight
+  marker, and reset-on-success; migration parity on fresh and upgraded databases.
+
+Results:
+
+- `npm run verify` passed 2026-10-01: typecheck, lint with no errors, 2,787 unit tests, the
+  100% coverage gate, the CRAP gate, and migration parity on fresh and upgraded databases.
+  No UI changed, so E2E was not run. Not yet deployed. Migration `0042` is applied by
+  `npm run deploy`.
+
+### 2026-10-01 — Retry an errored account and record why a sync failed
+
+Type: Bug Fix
+
+Summary:
+
+- The External accounts card shows **Retry sync** for an `error` or `resync_required`
+  account. Both states were already accepted by the sync API (it restarts them as a
+  resync), but the button was disabled unless the account was `active`, and Reconnect
+  appeared only for `reconnect_required` or `disconnected`, so the only way out of `error`
+  was Disconnect then Reconnect.
+- An unexpected sync failure now logs `External sync failed` with the account ID, job ID,
+  error code, error name, and a truncated detail. A database wrapper's own message is
+  never logged because it quotes the statement's bound values; its cause is logged instead.
+
+Reason:
+
+- The production Google account stopped in `error` with `sync_failed` after 131 attempts and
+  3,381 imported messages. Nothing retries an `error` account, the UI offered no retry, and
+  the generic failure left no log, so neither the recovery path nor the cause was visible.
+
+Impact:
+
+- A manager can restart a stalled import from the interface. Resync walks the window again;
+  already-imported messages are matched by their provider ID and not duplicated.
+- The root cause of the original `sync_failed` is still unknown; the new log will name it on
+  the next failure.
+
+Verification plan:
+
+- Unit test for the failure log and its content-free shape; E2E for the Retry sync button in
+  `error`, `resync_required`, and `paused` states. Run `npm run verify`.
+
+Results:
+
+- `npm run verify` passed 2026-10-01 (2,766 unit tests, coverage and CRAP gates); the
+  external-accounts Playwright spec passed 4 of 4. Not yet deployed.
+
+### 2026-09-30 — Skip oversized messages and cut per-message memory
+
+Type: Bug Fix / Behavior Change
+
+Summary:
+
+- Raw MIME above 10 MiB is skipped (was 30 MiB and fatal to the page). Gmail messages are
+  skipped from `sizeEstimate` before download, and `message_too_large` during download
+  skips that message instead of failing the page.
+- Gmail raw messages are base64-decoded straight into bytes, a declared oversized response
+  is refused before it is read, and exact-byte buffers are no longer copied for parsing.
+
+Reason:
+
+- After the lease-recovery fix, production logs showed the external-sync queue consumer
+  ending with `exceededMemory` on the page following message 1,937, so the job crashed and
+  was reclaimed every few minutes without advancing. The largest previously imported
+  message was about 7 MiB. The 30 MiB cap admitted messages that need several times their
+  size in Worker memory (response text, parsed string, padded/replaced strings, decoded
+  binary string, byte array, copy, parse).
+
+Impact:
+
+- Messages larger than 10 MiB are not imported from external accounts. This is a
+  deliberate limit, lower than the native inbound attachment allowance. Skipped messages
+  are logged but not yet counted in the connection card; surfacing a skipped count needs a
+  schema change and UI and is follow-up work.
+- Provider messages below the cap import exactly as before.
+
+Verification plan:
+
+- Provider-client tests for the decoder (padded, unpadded, URL-safe, invalid, oversized),
+  size estimate carry-through, and the declared-length guard; page-application tests for
+  skip-before-download, skip-on-download, cursor still committed, and other errors still
+  failing the page; an import test for the no-copy parse path. Run `npm run verify`, then
+  deploy and watch the stuck job resume.
+
+Results:
+
+- `npm run verify` passed 2026-09-30: typecheck, lint with no errors, 2,749 unit tests,
+  the 100% coverage gate, and the CRAP gate. E2E was not run; no user-visible contract
+  changed.
+- Not yet deployed. The stranded production job has not yet been observed resuming.
+
+### 2026-09-30 — Recover sync jobs stranded by an expired lease
+
+Type: Bug Fix
+
+Summary:
+
+- The queue consumer claims a `processing` job whose lease has expired, scheduled
+  reconciliation re-enqueues such jobs, and a manual sync request wakes them.
+
+Reason:
+
+- The production Google account connected 2026-09-23 imported 1,937 messages and then
+  stopped: its worker died mid-page and left the job `processing` with an expired lease
+  and the account `initial_sync`. The claim query and reconciliation only handled
+  `pending` jobs, and reconciliation only polled `active` accounts, so nothing could
+  ever recover it and manual sync silently coalesced into the dead job. This contradicted
+  the §6.3 lease-expiry contract.
+
+Impact:
+
+- Any crash mid-page is now self-healing within one reconciliation minute. The replay
+  resumes from the unchanged cursor and cannot duplicate mail. Attempts are not capped,
+  so a page that deterministically crashes its worker will be retried each minute; the
+  cause of the original crash is not yet identified.
+
+Verification plan:
+
+- Real-SQLite tests for expired and live leases across the claim, reconciliation, and
+  manual-sync paths; run `npm run verify`; after deploy, reset the stranded production job
+  and tail logs while it resumes.
+
+Results:
+
+- `npm run verify` passed 2026-09-30: typecheck, lint with no errors, 2,740 unit tests,
+  the coverage gate, and the CRAP gate. E2E was not run; no user-visible contract changed.
+- Not yet deployed. The stranded production job has not been reset.
+
+### 2026-09-23 — Accept provider-appended OAuth callback parameters
+
+Type: Bug Fix / Behavior Change
+
+Summary:
+
+- The OAuth callback reads exactly one `state` and one `code` and ignores any other
+  query parameters instead of rejecting them.
+- Callback failures that previously returned a raw JSON 403 now redirect: stale recent
+  authentication uses `?error=reauthenticate` and a missing active organization uses
+  `?error=forbidden`.
+- The external accounts settings page shows the `connected` or `error` result as a
+  status or alert message and removes the parameters from the address bar.
+
+Reason:
+
+- Google always appends `scope`, `authuser`, and `prompt` (and may append `hd` or
+  `iss`) to the redirect, and Microsoft work accounts append `session_state`. The
+  callback required exactly two parameters, so every real Google connection in
+  production was redirected with `?error=invalid` before the code exchange. The
+  settings page never displayed that error, so the failure was silent.
+
+Impact:
+
+- Google and Microsoft connections can complete. Extra parameters are never trusted;
+  identity still comes only from the provider identity endpoint. Duplicate `state` or
+  `code` values are still rejected.
+
+Verification plan:
+
+- Route tests with Google- and Microsoft-shaped callback URLs, duplicate parameters,
+  and redirect-based reauthentication errors; mapper unit tests for every error code;
+  E2E assertions for connected and error messages. Run `npm run verify` and the
+  external-accounts E2E spec, then retry a production Google connection.
+
+Results:
+
+- `npm run verify` passed: typecheck, lint with no errors, 2,734 unit tests, coverage
+  gate, and CRAP gate. The external-accounts E2E spec passed 3 of 3.
+- Deployed to production 2026-09-23 as Worker version
+  `5f756117-e9b0-4f0a-afa4-e2d97a841f74` from the working tree already live since
+  2026-09-06; no migrations were pending. The live settings bundle contains the new
+  notices and production smoke passed 8/8.
+- A production Google connection completed successfully after the deployment
+  (operator-reported, 2026-09-23). Microsoft remains untested in production because
+  its OAuth client secrets are not yet configured.
+
+### 2026-09-05 — Bound external Sync Page memory
+
+Type: Performance Fix / Behavior Change
+
+Summary:
+
+- Provider changes defer raw MIME loading, and Sync Page application commits each
+  message in a bounded idempotent batch before its final cursor batch.
+
+Reason:
+
+- Ten 30 MiB provider MIME messages and their parsed D1 body statements could remain
+  live together and exceed the Cloudflare Worker isolate memory limit.
+
+Impact:
+
+- Valid provider pages remain fully imported. A late page failure can leave earlier
+  message mappings committed, while the unchanged cursor makes the retry safe and
+  prevents skipped changes or duplicate Lumimail messages.
+
+Verification plan:
+
+- Add provider lazy-loader, adapter, sequential application, final-cursor, and late
+  failure replay tests. Run focused external-sync tests and repository verification.
+
+Notes:
+
+- Detailed contract and edge cases live in [F93](./F93-external-sync-bounded-memory.md).
+
+### 2026-08-19 — Deepen external-account synchronization architecture
+
+Type: Architecture / Correctness Change
+
+Planned summary:
+
+- Consolidate durable Sync Job creation, coalescing, leases, transitions, jitter, and
+  enqueue recovery behind one interface with a D1-enforced active-job invariant.
+- Commit each Sync Page's D1 state and cursor as one progress decision with explicit R2
+  compensation.
+- Select one Google or Microsoft adapter per workflow and isolate stored Delegated
+  Credentials behind credential custody.
+- Replace implementation-order database mocks with interface-level and real SQLite/D1
+  durability tests.
+
+Reason:
+
+- The implemented MVP repeats job and credential invariants across callers, exposes
+  provider-specific knowledge to orchestration, and cannot currently prove the F89
+  account-lease, jitter, or page/cursor atomicity contracts.
+
+Verification plan:
+
+- Add migration tests for the active-job uniqueness and compatible existing data.
+- Add state-based tests for competing creation, intent coalescing, lease expiry,
+  enqueue failure recovery, jitter bounds, page rollback, R2 compensation, and replay.
+- Retain direct provider-adapter and AES-GCM primitive coverage while replacing tests
+  that reach past the new interfaces.
+- Run `npm run verify`; no E2E run is required unless implementation changes a
+  user-visible contract.
+
+Result:
+
+- Added migration `0039`, including safe coalescing of any pre-existing duplicate
+  active jobs, preservation of every job row, a carried-forward stronger intent, and a
+  partial unique active-account index. Wrangler fresh and staged-upgrade migration
+  suites pass.
+- Added durable job, provider adapter, credential-custody, and Sync Page modules;
+  callers now cross those interfaces instead of reconstructing job, provider, crypto,
+  or page/cursor implementation details.
+- `npm run verify` passes: 300 application test files / 2,572 tests at 100% statement,
+  branch, function, and line coverage, plus 21 IMAP/SMTP bridge tests.
+- Browser E2E was not run because the user-visible F89 contract and routes/UI are
+  unchanged.
+- Production migration `0039` applied successfully on 2026-08-19 and Worker version
+  `12eeb49b-3ef5-4195-98a2-83abaa06d2a5` now receives 100% of traffic. The read-only
+  production doctor passes 26/26 with no pending migrations, exact active-version
+  bindings and handlers, public smoke, schedule, D1, R2, queues, Email Routing, and
+  Email Sending all healthy.
+- Controlled Google/Microsoft provider evidence remains pending under the existing
+  F89 release gate.
+
+### 2026-08-15 — Repair external-sync deployment wiring
+
+Type: Deployment Fix
+
+Summary:
+
+- Add the external synchronization queue and dead-letter queue as producers and
+  consumers in every deployable Wrangler environment, and include them in the doctor
+  binding contract.
+
+Reason:
+
+- The OAuth aggregation implementation and example configuration declared the queue
+  contract, but the live production/staging configuration omitted it. Deployment
+  therefore succeeded without the bindings required to enqueue initial or incremental
+  synchronization work.
+
+Verification plan:
+
+- Run the focused Wrangler/Worker wiring tests and configuration doctor tests.
+- Deploy production only after both queue resources exist.
+- Re-read the active Worker version and queue inventory; require both bindings and one
+  producer/consumer on each production queue before provider testing.
+
+Result:
+
+- The production queues were created, full verification passed with 2,554 application
+  tests at 100% configured coverage plus 21 bridge tests, and Worker version
+  `86ed7b09-8396-47f7-b39f-bd013d905802` deployed successfully.
+- Live inventory reports one producer and one consumer for both
+  `lumimail-external-sync-prod` and `lumimail-external-sync-dlq-prod`; the active Worker
+  version exposes `EXTERNAL_SYNC_QUEUE` and `EXTERNAL_SYNC_DLQ_QUEUE` against those
+  exact resources.
+- The read-only production doctor passes 26/26, including seven unique live queues,
+  exact active-version bindings, no pending migrations, public smoke, schedule, D1,
+  R2, Email Routing, and Email Sending.
+- Provider OAuth/encryption secrets remain a separate operator configuration step; no
+  external account should be connected until those five secrets are present.
+
+### 2026-08-15 — Implement OAuth aggregation MVP
+
+Type: Feature
+
+Summary:
+
+- Added Google and Microsoft delegated OAuth lifecycle, encrypted tokens and cursors,
+  bounded queue-driven import, idempotent external message mappings, provider-backed
+  durable sending, prospective retained originals, lifecycle APIs, settings UI,
+  compose sender selection, and external-source presentation.
+
+Reason:
+
+- Users need one Lumimail workspace for existing provider mail without granting
+  destructive remote mailbox permissions or treating retained copies as a verified
+  backup product.
+
+Impact:
+
+- Migrations `0037` and `0038`, an `EXTERNAL_SYNC_QUEUE` plus DLQ, five deployment
+  secrets, and Google/Microsoft OAuth application redirect configuration are required.
+  Existing native inbound/outbound and the client-facing IMAP/SMTP bridge remain
+  available and unchanged in purpose.
+
+Tests:
+
+- `npm run verify` passed: 294 application test files / 2,435 tests at 100% statement,
+  branch, function, and line coverage, plus 21 IMAP/SMTP bridge tests.
+- Focused Playwright external-account and settings-shell suite passed 6/6 at desktop
+  and 390 px coverage; all migrations through `0038` applied to a fresh local D1.
+
+Notes:
+
+- Controlled live Google/Microsoft tenant evidence, remote deployment, and restore
+  rehearsal were not performed. OpenNext compilation reached a successful Webpack
+  bundle but the repository-wide Next 16 route-wrapper type contract fails production
+  type generation for existing routes (`RouteContext | undefined`); deployment dry
+  run therefore remains pending and is not attributed to this feature as passed.
+
+### 2026-08-15 — Define OAuth-first external mail roadmap
+
+Type: Documentation Change
+
+Summary:
+
+- Defined the Google/Microsoft OAuth aggregation MVP, provider-backed sending,
+  prospective exact-original retention, data/security boundaries, verification plan,
+  and staged expansion through generic IMAP/SMTP, complete archive, and two-way sync.
+
+Reason:
+
+- Lumimail needs a safe product contract for consolidating users' existing mail without
+  conflating its current client-facing IMAP bridge with external-account ingestion or
+  prematurely promising destructive remote synchronization and verified backup.
+
+Impact:
+
+- No runtime behavior changes. This draft gives implementation a bounded first release
+  and makes the larger roadmap, security decisions, and unresolved choices explicit.
+
+Tests:
+
+- Documentation-only change; links and repository references inspected manually.
+
+Notes:
+
+- Implementation must begin with this spec and update it as provider prototypes resolve
+  the remaining scope, quota, storage, and deployment questions.
+
+### 2026-11-07 — Restore HTML stored empty by the sanitizer bug
+
+Type: Bug Fix (data repair)
+
+Summary:
+- Before the F34 full-document fix, imported campaign mail was stored with
+  `html_body = ''`. Rows with no HTML part store NULL, so `''` identifies affected rows.
+- `repairExternalMessageBodies()` runs from the existing one-minute cron. For each active
+  or initial-sync account it re-downloads up to 25 affected messages by remote ID
+  (Gmail `format=raw` / Graph `$value`), re-parses them, and stores the sanitized HTML.
+  Existing text bodies are kept; an empty snippet is rebuilt.
+- Permanent provider failures (deleted remotely, too large, malformed) set NULL so the
+  row is never retried. Throttling, outages, and credential errors defer the account to
+  the next run. Migration `0045` adds a partial index over `html_body = ''` so the
+  per-minute check stays cheap after the backlog drains.
+- Native inbound mail affected by the same bug cannot be repaired: its raw copy is
+  deleted after parsing (F63).
+
+Tests:
+- `body-repair.sqlite.test.ts`: selection, restore, text/snippet preservation,
+  abandonment, throttling, credential deferral, batching. Migration parity passes.
+
+### 2026-11-08 — Time-box the body repair
+
+Type: Bug Fix
+
+Summary:
+- The scheduled run that hosts the repair was exceeding the Worker CPU limit, so later
+  steps never ran. Re-parsing large newsletters is CPU-heavy. The repair now stops starting
+  new messages once about 8 seconds have passed and reports `deferred`; remaining rows are
+  picked up by the next run. Each repaired row is still saved as it completes.
+
+Tests:
+- `body-repair.sqlite.test.ts`: stops once the time budget is spent and resumes next run.
+
+### 2026-11-08 — Skip a message whose parse exhausts the CPU limit
+
+Type: Bug Fix
+
+Summary:
+- Step logging showed every scheduled run killed inside the repair, with the backlog stuck at
+  5,433 rows: one message's parse used the whole 30 s CPU limit, and because the row was
+  still `''` the next run picked it again. The time budget cannot stop a single synchronous
+  parse.
+- The repair now claims each row (sets `html_body` to NULL) after downloading and before
+  parsing. A run killed mid-parse leaves that row NULL, so it keeps its text body and is not
+  retried; the backlog keeps moving.
+
+Tests:
+- `body-repair.sqlite.test.ts`: a parse that never finishes leaves the row claimed, and the
+  next run moves on to the remaining rows.
+

@@ -52,6 +52,9 @@ function createServiceWorkerHarness() {
 	const fetchMock = vi.fn(async (request: { url: string }) =>
 		basicResponse(`network:${new URL(request.url, origin).pathname}`),
 	);
+	const showNotification = vi.fn(async () => undefined);
+	const openWindow = vi.fn(async () => undefined);
+	const matchAll = vi.fn(async () => [] as Array<{ url: string; focus: () => Promise<void> }>);
 
 	function cacheKey(input: string | { url: string }) {
 		const url = typeof input === "string" ? input : input.url;
@@ -98,7 +101,8 @@ function createServiceWorkerHarness() {
 
 	const self = {
 		location: new URL(`${origin}/sw.js`),
-		clients: { claim: vi.fn(async () => undefined) },
+		registration: { showNotification },
+		clients: { claim: vi.fn(async () => undefined), matchAll, openWindow },
 		skipWaiting: vi.fn(async () => undefined),
 		addEventListener: vi.fn((type: string, listener: (event: any) => void) => {
 			listeners.set(type, [...(listeners.get(type) ?? []), listener]);
@@ -151,12 +155,50 @@ function createServiceWorkerHarness() {
 		return response ? await response : undefined;
 	}
 
+	async function dispatchPush(value: unknown) {
+		const pending: Promise<unknown>[] = [];
+		for (const listener of listeners.get("push") ?? []) {
+			listener({
+				data: value === undefined ? null : { json: () => value },
+				waitUntil: (promise: Promise<unknown>) => pending.push(Promise.resolve(promise)),
+			});
+		}
+		await Promise.all(pending);
+	}
+
+	async function dispatchNotificationClick(data: unknown) {
+		const pending: Promise<unknown>[] = [];
+		const close = vi.fn();
+		for (const listener of listeners.get("notificationclick") ?? []) {
+			listener({
+				notification: { close, data },
+				waitUntil: (promise: Promise<unknown>) => pending.push(Promise.resolve(promise)),
+			});
+		}
+		await Promise.all(pending);
+		return { close };
+	}
+
+	async function dispatchPushSubscriptionChange() {
+		const pending: Promise<unknown>[] = [];
+		for (const listener of listeners.get("pushsubscriptionchange") ?? []) {
+			listener({ waitUntil: (promise: Promise<unknown>) => pending.push(Promise.resolve(promise)) });
+		}
+		await Promise.all(pending);
+	}
+
 	return {
 		cacheStore,
 		cachesMock,
 		dispatchFetch,
 		dispatchLifecycle,
+		dispatchNotificationClick,
+		dispatchPush,
+		dispatchPushSubscriptionChange,
 		fetchMock,
+		matchAll,
+		openWindow,
+		showNotification,
 		self,
 	};
 }
@@ -169,13 +211,14 @@ describe("PWA manifest", () => {
 			start_url: "/",
 			scope: "/",
 			display: "standalone",
-			background_color: "#f6f8fc",
-			theme_color: "#2563eb",
+			background_color: "#F6F8FB",
+			theme_color: "#0D1524",
 		});
 	});
 
 	it("references complete install icon sizes including maskable icons", () => {
 		const manifest = loadManifest();
+		expect(manifest.icons.every((icon) => !icon.src.startsWith("/mantle/"))).toBe(true);
 		const requiredIcons = [
 			{ src: "/icon-48.png", sizes: "48x48", purpose: "any" },
 			{ src: "/icon-96.png", sizes: "96x96", purpose: "any" },
@@ -199,7 +242,8 @@ describe("PWA manifest", () => {
 	it("ships iOS touch icon and offline shell assets", () => {
 		expect(existsSync(publicFile("apple-touch-icon.png"))).toBe(true);
 		expect(readPngSize("apple-touch-icon.png")).toEqual({ width: 180, height: 180 });
-		expect(readPublicText("offline.html")).toContain("You are offline");
+		expect(readPublicText("offline.html")).toContain("You are offline | Lumimail");
+		expect(readPublicText("offline.html")).toContain("Lumimail needs a network connection");
 		expect(readPublicText("offline.html")).toContain("/icon-192.png");
 	});
 });
@@ -221,7 +265,7 @@ describe("PWA service worker assets", () => {
 		harness.cacheStore.set("old-cache", new Map());
 		await harness.dispatchLifecycle("activate");
 
-		expect(harness.cacheStore.get("lumimail-pwa-v1-precache")?.has("https://lumimail.test/offline.html")).toBe(true);
+		expect(harness.cacheStore.get("lumimail-pwa-v5-precache")?.has("https://lumimail.test/offline.html")).toBe(true);
 		expect(harness.cacheStore.has("old-cache")).toBe(false);
 		expect(harness.self.skipWaiting).toHaveBeenCalledOnce();
 		expect(harness.self.clients.claim).toHaveBeenCalledOnce();
@@ -251,7 +295,7 @@ describe("PWA service worker assets", () => {
 		});
 
 		expect(await online?.text()).toBe("network:/inbox");
-		expect(harness.cacheStore.get("lumimail-pwa-v1-runtime")?.has("https://lumimail.test/inbox")).not.toBe(true);
+		expect(harness.cacheStore.get("lumimail-pwa-v5-runtime")?.has("https://lumimail.test/inbox")).not.toBe(true);
 
 		harness.fetchMock.mockRejectedValueOnce(new TypeError("offline"));
 		const offline = await harness.dispatchFetch({
@@ -276,16 +320,74 @@ describe("PWA service worker assets", () => {
 		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("caches Next static assets outside local development hosts", async () => {
+	it("does not intercept content-hashed Next static assets", async () => {
 		const harness = createServiceWorkerHarness();
 
 		const response = await harness.dispatchFetch({ url: "https://lumimail.test/_next/static/chunks/app.js" });
 
-		expect(await response?.text()).toBe("network:/_next/static/chunks/app.js");
-		expect(
-			harness.cacheStore
-				.get("lumimail-pwa-v1-runtime")
-				?.has("https://lumimail.test/_next/static/chunks/app.js"),
-		).toBe(true);
+		expect(response).toBeUndefined();
+		expect(harness.fetchMock).not.toHaveBeenCalled();
+		expect(harness.cacheStore.get("lumimail-pwa-v5-runtime")).toBeUndefined();
+	});
+
+	it("shows only fixed generic copy for a valid opaque push delivery ID", async () => {
+		const harness = createServiceWorkerHarness();
+		const notificationId = "pudl_0123456789ABCDEFGHIJK";
+
+		await harness.dispatchPush({ notificationId });
+
+		expect(harness.showNotification).toHaveBeenCalledWith("New mail", {
+			body: "Open Lumimail to view it.",
+			icon: "/icon-192.png",
+			badge: "/icon-96.png",
+			tag: notificationId,
+			data: { path: `/notifications/${notificationId}` },
+		});
+	});
+
+	it("ignores malformed push data and never uses payload-supplied copy or routes", async () => {
+		const harness = createServiceWorkerHarness();
+
+		await harness.dispatchPush({
+			notificationId: "bad/id",
+			title: "Secret subject",
+			body: "Secret sender",
+			url: "https://evil.example/",
+		});
+		await harness.dispatchPush(undefined);
+
+		expect(harness.showNotification).not.toHaveBeenCalled();
+	});
+
+	it("opens only the stored same-origin notification resolver", async () => {
+		const harness = createServiceWorkerHarness();
+		const notificationId = "pudl_0123456789ABCDEFGHIJK";
+
+		const { close } = await harness.dispatchNotificationClick({
+			path: `/notifications/${notificationId}`,
+			url: "https://evil.example/",
+		});
+
+		expect(close).toHaveBeenCalledOnce();
+		expect(harness.openWindow).toHaveBeenCalledWith(`https://lumimail.test/notifications/${notificationId}`);
+	});
+
+	it("does not silently resubscribe after browser subscription rotation", async () => {
+		const harness = createServiceWorkerHarness();
+		await harness.dispatchPushSubscriptionChange();
+		expect(harness.showNotification).toHaveBeenCalledWith("Notifications paused", {
+			body: "Open Lumimail to enable notifications again.",
+			icon: "/icon-192.png",
+			badge: "/icon-96.png",
+			tag: "lumimail-push-subscription-change",
+			data: { path: "/settings/notifications" },
+		});
+		expect(harness.fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("allows the fixed settings route from a subscription-change notice", async () => {
+		const harness = createServiceWorkerHarness();
+		await harness.dispatchNotificationClick({ path: "/settings/notifications" });
+		expect(harness.openWindow).toHaveBeenCalledWith("https://lumimail.test/settings/notifications");
 	});
 });

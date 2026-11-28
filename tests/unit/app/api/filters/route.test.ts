@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextResponse } from "next/server";
 import { createDbMock, type DbMock } from "../../../helpers/db";
 
-const m = vi.hoisted(() => ({ db: null as unknown, guardUser: vi.fn() }));
+const m = vi.hoisted(() => ({ db: null as unknown, getCurrentUser: vi.fn() }));
 vi.mock("@/lib/cloudflare", () => ({ getEnv: () => ({}) }));
 vi.mock("@/db", () => ({ getDb: () => m.db }));
-vi.mock("@/lib/auth/cookies", () => ({ guardUser: m.guardUser }));
+vi.mock("@/lib/auth/cookies", () => ({ getCurrentUser: m.getCurrentUser }));
 vi.mock("@/lib/ids", () => ({ newId: () => "filter_1" }));
 
 import { GET, POST } from "@/app/api/filters/route";
@@ -16,7 +16,7 @@ const unauth = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 beforeEach(() => {
 	mock = createDbMock();
 	m.db = mock.db;
-	m.guardUser.mockReset();
+	m.getCurrentUser.mockReset();
 });
 
 function post(body: unknown) {
@@ -28,13 +28,13 @@ function post(body: unknown) {
 
 describe("GET /api/filters", () => {
 	it("returns 401 when unauthenticated", async () => {
-		m.guardUser.mockResolvedValue({ errorResponse: unauth });
+		m.getCurrentUser.mockResolvedValue(null);
 		const res = await GET(new Request("https://x.test/api/filters"));
 		expect(res.status).toBe(401);
 	});
 
 	it("lists the user's filters", async () => {
-		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
+		m.getCurrentUser.mockResolvedValue({ id: "u1" });
 		mock.queueSelect([{ id: "filter_1", name: "F" }]);
 		const res = await GET(new Request("https://x.test/api/filters"));
 		expect(res.status).toBe(200);
@@ -44,21 +44,21 @@ describe("GET /api/filters", () => {
 
 describe("POST /api/filters", () => {
 	it("returns 401 when unauthenticated", async () => {
-		m.guardUser.mockResolvedValue({ errorResponse: unauth });
+		m.getCurrentUser.mockResolvedValue(null);
 		const res = await POST(post({ name: "F" }));
 		expect(res.status).toBe(401);
 	});
 
 	it("returns 400 for an invalid body", async () => {
-		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
+		m.getCurrentUser.mockResolvedValue({ id: "u1" });
 		const res = await POST(post({ name: "" }));
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as any).success).toBe(false);
 	});
 
 	it("creates a filter, nulling optional fields when omitted", async () => {
-		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
-		const res = await POST(post({ name: "Newsletters" }));
+		m.getCurrentUser.mockResolvedValue({ id: "u1" });
+		const res = await POST(post({ name: "Newsletters", hasWords: "unsubscribe" }));
 		expect(res.status).toBe(200);
 		expect((await res.json()) as any).toEqual({ success: true, data: { id: "filter_1" } });
 		expect(mock.inserts[0].values).toMatchObject({
@@ -68,7 +68,10 @@ describe("POST /api/filters", () => {
 			fromContains: null,
 			toContains: null,
 			subjectContains: null,
-			hasWords: null,
+			hasWords: "unsubscribe",
+			matchMode: "all",
+			actionFocus: null,
+			actionExpireDays: null,
 			actionLabelId: null,
 			actionStar: false,
 			actionMarkRead: false,
@@ -77,8 +80,28 @@ describe("POST /api/filters", () => {
 		});
 	});
 
+	it("rejects a filter with no condition or too many alternatives (F101)", async () => {
+		m.getCurrentUser.mockResolvedValue({ id: "u1" });
+		expect((await POST(post({ name: "Everything", fromContains: "  " }))).status).toBe(400);
+		const eleven = Array.from({ length: 11 }, (_, index) => `s${index}.test`).join(",");
+		expect((await POST(post({ name: "Many", fromContains: eleven }))).status).toBe(400);
+		expect((await POST(post({ name: "Expire", fromContains: "a", actionExpireDays: 0 }))).status).toBe(400);
+		expect(mock.inserts).toHaveLength(0);
+	});
+
+	it("stores any-of matching, the focus override, and expiry (F101)", async () => {
+		m.getCurrentUser.mockResolvedValue({ id: "u1" });
+		const res = await POST(post({
+			name: "Deals", fromContains: "amazon.com, ebay.com", matchMode: "any", actionFocus: "other", actionExpireDays: 14,
+		}));
+		expect(res.status).toBe(200);
+		expect(mock.inserts[0].values).toMatchObject({
+			fromContains: "amazon.com, ebay.com", matchMode: "any", actionFocus: "other", actionExpireDays: 14,
+		});
+	});
+
 	it("creates a filter, preserving provided optional fields", async () => {
-		m.guardUser.mockResolvedValue({ user: { id: "u1" } });
+		m.getCurrentUser.mockResolvedValue({ id: "u1" });
 		const res = await POST(
 			post({
 				name: "Work",
