@@ -1,12 +1,12 @@
 # Lumimail — The Open-Source, Self-Hosted Email Platform That Makes Google Workspace Look Like Rent
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red.svg)](https://github.com/cschanhniem/lumimail)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 [![Self-Hosted](https://img.shields.io/badge/Self--Hosted-Cloudflare-orange.svg)](https://workers.cloudflare.com/)
 [![Built with Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
 
-**Lumimail is a free and open-source, multi-tenant email platform you run on your own Cloudflare account.** The full source is on GitHub under AGPL-3.0 — read it, fork it, audit it, run it. Own your domains, your mailboxes, your data, and your monthly bill. No per-seat tax. No mailbox you don't control. No vendor reading your mail. No black box.
+**Lumimail is a free and open-source, multi-tenant email platform you run on your own Cloudflare account.** The full source is on GitHub under the MIT license — read it, fork it, audit it, run it. Own your domains, your mailboxes, your data, and your monthly bill. No per-seat tax. No mailbox you don't control. No vendor reading your mail. No black box.
 
 > Gmail without the landlord. Google Workspace without the invoice that grows every time you hire someone. **Open source, so you can actually trust what's running your mail.**
 
@@ -18,10 +18,10 @@
 
 ## Open source, for real
 
-Lumimail isn't "source-available with an asterisk." It's **AGPL-3.0** — the strongest copyleft license there is — because your email infrastructure should be inspectable, forkable, and free of lock-in by design.
+Lumimail isn't "source-available with an asterisk." It's **MIT** — one of the simplest, most permissive open-source licenses there is — because your email infrastructure should be inspectable, forkable, and free of lock-in by design.
 
 - **Read every line.** No proprietary core, no hidden telemetry, no phone-home. What's in the repo is what runs.
-- **Fork it freely.** Self-host, modify, and redistribute. The only obligation: if you run a modified version *as a network service*, publish your changes (that's the AGPL keeping the commons honest).
+- **Fork it freely.** Self-host, modify, redistribute, or build a product on it, commercial or not. The only obligation: keep the copyright and license notice.
 - **Own your exit.** Because it's open and runs on your own Cloudflare account, there is no vendor who can raise your price, lock your data, or shut you off.
 - **Built in the open.** Issues, PRs, and roadmap live on GitHub. Contributions are welcome — see [Contributing](#contributing).
 
@@ -46,7 +46,7 @@ Lumimail breaks the treadmill. It runs entirely on **Cloudflare Workers + D1 + R
 | Desktop/mobile clients (IMAP/SMTP) | **Via separately deployed bridge** | Yes | Yes | Yes |
 | Server to patch at 3am | **None (serverless)** | None | None | Yours |
 | Vendor lock-in | **None — fully open source, self-run** | Total | Total | None |
-| License | **AGPL-3.0 (open source)** | Proprietary | Proprietary | Mixed OSS |
+| License | **MIT (open source)** | Proprietary | Proprietary | Mixed OSS |
 | Source you can audit | **100% on GitHub** | None | None | Yes |
 
 You don't pick Lumimail because it's cheaper. You pick it because it's *yours* and *open* — you can read the code running your mail — and it happens to also be cheaper.
@@ -230,7 +230,7 @@ Next.js 16 on Cloudflare Workers (OpenNext), D1, R2, Queues. Serverless — no V
 The separately deployed IMAP/SMTP bridge implements the client-facing contract and authenticates with a personal API key. Production bridge hosting, trusted TLS, and controlled client validation are still tracked work, so treat this as an operator-deployed integration rather than a hosted endpoint included with the Worker.
 
 **What's the license — can I use it commercially?**
-Lumimail is **AGPL-3.0** open source: self-host, modify, and redistribute freely. The catch that keeps it sustainable — if you run a modified version *as a network service*, you must publish your changes. Want to offer a hosted Lumimail without that obligation? A commercial license is available — email **vh3969@gmail.com**.
+Yes. Lumimail is **MIT** open source: use it, self-host it, modify it, sell it, or offer it as a hosted service. Just keep the copyright and license notice. No copyleft, and no paid license to buy.
 
 ## Contributing
 
@@ -238,7 +238,7 @@ Lumimail is built in the open and **contributions are genuinely welcome** — bu
 
 1. ⭐ Star the repo and open a [GitHub issue](https://github.com/cschanhniem/lumimail/issues) for bugs or ideas.
 2. Fork, branch, and send a PR. Run `npm run verify` before opening it.
-3. Sign off on the [Contributor License Agreement](./CLA.md) — it keeps copyright consolidated so the project can stay **both open source and commercially sustainable** (the commercial license is what funds the open one).
+3. Sign off on the [Contributor License Agreement](./CLA.md). Contributions are released under MIT; the CLA lets the maintainer keep the project's licensing simple and consistent.
 
 Every contribution keeps email a little more open.
 
@@ -256,9 +256,9 @@ Lumimail is designed so autonomous agents can contribute as first-class collabor
 ## Support
 
 - **Email:** vh3969@gmail.com
-- **Commercial licensing & partnerships:** vh3969@gmail.com
+- **Partnerships:** vh3969@gmail.com
 - **Bugs & features:** open a GitHub issue
 
 ## License
 
-**AGPL-3.0** (GNU Affero General Public License v3.0). Copyright (c) 2026 Le Viet Hong. Commercial licenses available — see [LICENSE](./LICENSE) and contact vh3969@gmail.com.
+**MIT**. Copyright (c) 2026 Le Viet Hong and Lumimail contributors. See [LICENSE](./LICENSE).

@@ -1,8 +1,7 @@
 # Contributor License Agreement (CLA)
 
-Thank you for contributing to Lumimail. To keep the project sustainable — and to
-let the maintainer offer both the open-source (AGPL-3.0) edition and commercial
-licenses — every contribution is accepted under the terms below.
+Thank you for contributing to Lumimail. To keep the project's licensing simple
+and consistent, every contribution is accepted under the terms below.
 
 By submitting a contribution (a pull request, patch, or any other change) to this
 repository, **you agree to the following:**
@@ -14,16 +13,12 @@ non-exclusive, royalty-free, irrevocable copyright license to reproduce,
 prepare derivative works of, publicly display, publicly perform, sublicense,
 and distribute your contribution and such derivative works.
 
-## 2. Relicensing / dual-licensing right
+## 2. Project license
 
-You agree that the Maintainer may license your contribution under:
-
-- the GNU Affero General Public License v3.0 (the project's open-source license), **and**
-- separate commercial or proprietary license terms,
-
-so that Lumimail can be offered both as open source and under commercial
-licenses. You retain your own copyright in your contribution; this is a license
-grant, not an assignment.
+You agree that the Maintainer may license your contribution under the MIT
+License (the project's license) or any other open-source license. You retain
+your own copyright in your contribution; this is a license grant, not an
+assignment.
 
 ## 3. Patent license
 
@@ -55,4 +50,4 @@ You will not be required to provide support for your contribution.
 ---
 
 If you do not agree to these terms, please do not submit a contribution.
-For questions about this CLA or commercial licensing, contact **vh3969@gmail.com**.
+For questions about this CLA, contact **vh3969@gmail.com**.
