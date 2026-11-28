@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Star } from "lucide-react";
+import { INBOX_FOCUS_KEY, parseInboxFocus, type InboxFocus } from "./inbox-focus-utils";
+import { OtherDigest } from "./other-digest";
+import { CleanUpMenu, OtherBacklogPrompt, SelectAllInViewBar } from "./bulk-cleanup";
+import type { ViewQuery } from "./bulk-cleanup-utils";
+import { GroupBySenderToggle } from "./sender-groups";
+import { FolderListBody, useFolderViewActions } from "./folder-view-actions";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { ChevronLeft, ChevronRight, PanelBottom, PanelRight, Star } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,20 +17,39 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useCompose } from "@/components/compose/compose-context";
 import { useMailSearch } from "@/components/mail-search/mail-search-context";
 import { useSelectedMailbox } from "@/components/mailbox-provider";
+import { invalidateMessageQueries, labelKeys } from "@/lib/query-keys";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useMessages } from "@/hooks/use-messages";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authFetch } from "@/lib/auth/client";
+import { parseApiResponse } from "@/lib/api/client-response";
 import type { BulkMessageAction } from "@/app/api/messages/bulk/types";
 import { BulkMessageToolbar } from "./bulk-message-toolbar";
 import type { MessageListRowProps, MessageFolderConfig } from "./types";
 import {
+	getExternalSourceBadge,
 	getPageRange,
 	getMessageBadge,
 	getMessageParty,
 	getMessagePartyClassName,
 	getMessagePreview,
-	runBulkMessageAction,
+	retryMessageDelivery,
 } from "./utils";
+import { canRecoverMessage } from "./message-folder-utils";
+import { formatMessageListTime } from "./message-time-utils";
+import { MOBILE_QUERY, useMediaQuery } from "@/hooks/use-media-query";
+import { canMailboxSend } from "@/components/mailbox-provider-utils";
+import { MessageDetailView } from "./message-detail-view";
+import { ResizableMailPanels } from "./resizable-mail-panels";
+import {
+	getConversationInitial,
+	isSelectableMessageId,
+	parseSelectedMessageId,
+	parseSplitOrientation,
+	type SplitOrientation,
+} from "./desktop-split-utils";
+
+const SPLIT_ORIENTATION_KEY = "lumimail:conversation-split-orientation";
 
 const pageSize = 25;
 
@@ -35,14 +61,220 @@ async function fetchLabels(): Promise<Label[]> {
 	return json.data ?? [];
 }
 
-function MessageListRow({ message, config, selected, onSelectedChange, onStarToggle }: MessageListRowProps) {
+function MessageRowMeta({ message, config, mailboxLabel, externalSource, timestamp, unread }: Pick<MessageListRowProps, "message" | "config" | "mailboxLabel" | "externalSource" | "timestamp"> & { unread: boolean }) {
+	return <div className="flex shrink-0 items-center gap-2">
+		{externalSource && <Badge variant="outline" className="hidden md:inline-flex" title={externalSource.full}>{externalSource.short}</Badge>}
+		{mailboxLabel && <Badge variant="outline" title={mailboxLabel}>{mailboxLabel}</Badge>}
+		{config.showRowBadge !== false && <Badge variant={config.badgeVariant ?? "secondary"}>{getMessageBadge(message, config.folder)}</Badge>}
+		{timestamp && <time dateTime={message.createdAt} className={`shrink-0 text-xs tabular-nums ${unread ? "font-semibold text-ink" : "text-ink-muted"}`}>{timestamp}</time>}
+	</div>;
+}
+
+function MessageRowContent({ message, config, compact, meta }: Pick<MessageListRowProps, "message" | "config" | "compact"> & { meta: React.ReactNode }) {
 	const t = useTranslations("messages");
-	const Icon = config.icon;
-	const { openDraftComposer } = useCompose();
 	const unread = message.direction === "inbound" && !message.read;
+	return <div className="flex min-w-0 flex-1 items-center gap-3">
+		<span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-muted text-xs font-semibold text-accent">{getConversationInitial(getMessageParty(message, config.folder))}</span>
+		<div className={`flex min-w-0 flex-1 gap-0.5 ${compact ? "flex-col py-1.5" : "flex-row items-center gap-3"}`}>
+			<div className={`flex min-w-0 items-center gap-2 ${compact ? "" : "w-40 shrink-0 sm:w-60"}`}><span className={`${getMessagePartyClassName(message, config.folder)} ${compact ? "flex-1" : ""}`}>{getMessageParty(message, config.folder)}</span>{compact && meta}</div>
+			<span className="min-w-0 flex-1 truncate text-ink-muted"><span className={unread ? "font-bold text-ink" : ""}>{message.subject ?? t("noSubject")}</span><span className="text-ink-muted"> - {getMessagePreview(message, config.folder)}</span></span>
+			{(message.threadCount ?? 1) > 1 && <Badge variant="outline" aria-label={`${message.threadCount} messages in thread`}>{message.threadCount}</Badge>}
+			{!compact && meta}
+		</div>
+	</div>;
+}
+
+function FolderLabelHeader({ title, pinned, labels, activeId, onChange }: {
+	title?: string; pinned: boolean; labels: Label[]; activeId: string | null; onChange: (id: string | null) => void;
+}) {
+	return <>
+		{title && <div className="flex items-center gap-2 border-b border-border px-6 py-2"><h1 className="truncate text-sm font-semibold text-ink">{title}</h1></div>}
+		{!pinned && labels.length > 0 && <div className="flex items-center gap-2 border-b border-border px-6 py-2">
+			<button type="button" onClick={() => onChange(null)} className={`rounded-full px-3 py-0.5 text-xs font-medium transition-colors ${activeId === null ? "bg-surface-inverse text-ink-inverse" : "bg-surface-subtle text-ink-muted hover:bg-surface-subtle"}`}>All</button>
+			{labels.map((label) => <button key={label.id} type="button" onClick={() => onChange(activeId === label.id ? null : label.id)} className={`flex items-center gap-1.5 rounded-full px-3 py-0.5 text-xs font-medium transition-colors ${activeId === label.id ? "bg-surface-inverse text-ink-inverse" : "bg-surface-subtle text-ink-muted hover:bg-surface-subtle"}`}><span className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: label.color }} />{label.name}</button>)}
+		</div>}
+	</>;
+}
+
+const INBOX_FOCUS_EVENT = "lumimail:inbox-focus-change";
+// This tab's latest choice, so switching works even where storage is unavailable.
+let sessionInboxFocus: InboxFocus | null = null;
+
+function readInboxFocus(): InboxFocus {
+	if (sessionInboxFocus) return sessionInboxFocus;
+	try {
+		return parseInboxFocus(globalThis.localStorage.getItem(INBOX_FOCUS_KEY));
+	} catch {
+		return "focused";
+	}
+}
+
+function writeInboxFocus(next: InboxFocus) {
+	sessionInboxFocus = next;
+	try {
+		globalThis.localStorage.setItem(INBOX_FOCUS_KEY, next);
+	} catch {
+		// Storage can be unavailable; the event below still updates this tab.
+	}
+	globalThis.dispatchEvent(new Event(INBOX_FOCUS_EVENT));
+}
+
+function subscribeInboxFocus(onChange: () => void) {
+	// Another tab's choice wins over this tab's remembered one.
+	const onStorage = (event: StorageEvent) => {
+		if (event.key !== INBOX_FOCUS_KEY) return;
+		sessionInboxFocus = null;
+		onChange();
+	};
+	globalThis.addEventListener(INBOX_FOCUS_EVENT, onChange);
+	globalThis.addEventListener("storage", onStorage);
+	return () => {
+		globalThis.removeEventListener(INBOX_FOCUS_EVENT, onChange);
+		globalThis.removeEventListener("storage", onStorage);
+	};
+}
+
+/** Focused / Other tabs over the Inbox (F97). */
+function InboxFocusTabs({ value, onChange }: { value: InboxFocus; onChange: (value: InboxFocus) => void }) {
+	const t = useTranslations("messages");
+	return <div role="tablist" aria-label={t("inboxView")} className="flex items-center gap-1 px-6">
+		{(["focused", "other"] as const).map((option) => <button
+			key={option}
+			type="button"
+			role="tab"
+			aria-selected={value === option}
+			onClick={() => onChange(option)}
+			className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${value === option ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"}`}
+		>{t(option === "focused" ? "focusedInbox" : "otherInbox")}</button>)}
+	</div>;
+}
+
+type InboxFocusState = { focus: InboxFocus | undefined; change: (next: InboxFocus) => void };
+
+/** The Inbox's Focused / Other choice; undefined outside the plain Inbox (F97). */
+function useInboxFocus(config: { folder: string; labelId?: string }, onChange: () => void): InboxFocusState {
+	const stored = useSyncExternalStore(subscribeInboxFocus, readInboxFocus, () => "focused" as const);
+	const enabled = config.folder === "inbox" && !config.labelId;
+	return {
+		focus: enabled ? stored : undefined,
+		change: (next) => {
+			writeInboxFocus(next);
+			onChange();
+		},
+	};
+}
+
+function InboxFocusHeader({ inbox, showDigest, mailboxId, view, grouped }: {
+	inbox: InboxFocusState; showDigest: boolean; mailboxId: string | null; view: ViewQuery; grouped: [boolean, (next: boolean) => void];
+}) {
+	if (!inbox.focus) return null;
+	const showOtherExtras = inbox.focus === "other" && showDigest;
+	return <>
+		<div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pe-6">
+			<InboxFocusTabs value={inbox.focus} onChange={inbox.change} />
+			<div className="flex flex-wrap items-center gap-3 ps-6">
+				<GroupBySenderToggle value={grouped[0]} onChange={grouped[1]} />
+				<CleanUpMenu query={view} />
+			</div>
+		</div>
+		{showOtherExtras && <OtherBacklogPrompt query={view} />}
+		{showOtherExtras && <OtherDigest mailboxId={mailboxId} />}
+	</>;
+}
+
+function FolderSelectionControls({ messageCount, allSelected, selectedCount, hasUnread, pending, onToggleAll, onAction, onClear }: {
+	messageCount: number; allSelected: boolean; selectedCount: number; hasUnread: boolean; pending: boolean;
+	onToggleAll: (selected: boolean) => void; onAction: (action: BulkMessageAction) => void; onClear: () => void;
+}) {
+	const t = useTranslations("messages");
+	return <div className="flex items-center gap-3 w-full"><Tooltip label={t("selectAll")}><input type="checkbox" checked={allSelected} disabled={messageCount === 0} onChange={(event) => onToggleAll(event.target.checked)} className="h-4 w-4 rounded border-border-strong" aria-label={t("selectAll")} /></Tooltip>
+		{selectedCount > 0 && <BulkMessageToolbar selectedCount={selectedCount} hasUnreadSelection={hasUnread} onAction={onAction} onClearSelection={onClear} pending={pending} />}
+	</div>;
+}
+
+function FolderPaginationControls({ hidden, splitDesktop, selectedMessageId, orientation, range, offset, limit, messageCount, total, loading, onToggleOrientation, onOffsetChange }: {
+	hidden: boolean; splitDesktop: boolean; selectedMessageId: string | null; orientation: SplitOrientation;
+	range: { start: number; end: number; total: number }; offset: number; limit: number; messageCount: number; total: number; loading: boolean;
+	onToggleOrientation: () => void; onOffsetChange: (offset: number) => void;
+}) {
+	const t = useTranslations("messages");
+	if (hidden) return null;
+	const orientationLabel = orientation === "right" ? "Move conversation panel below the list" : "Move conversation panel beside the list";
+	return <div className="flex items-center gap-2 text-ink-muted">
+		{splitDesktop && selectedMessageId && <Tooltip label={orientationLabel}><Button variant="ghost" size="sm" onClick={onToggleOrientation} aria-label={orientationLabel}>{orientation === "right" ? <PanelBottom className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}</Button></Tooltip>}
+		<span className="text-xs text-ink-muted whitespace-nowrap">{t("pageRange", { start: range.start, end: range.end, total: range.total })}</span>
+		<Tooltip label={t("previousPage")}><Button variant="ghost" size="sm" disabled={offset === 0 || loading} onClick={() => onOffsetChange(Math.max(offset - limit, 0))} aria-label={t("previousPage")}><ChevronLeft className="h-4 w-4" /></Button></Tooltip>
+		<Tooltip label={t("nextPage")}><Button variant="ghost" size="sm" disabled={offset + messageCount >= total || loading} onClick={() => onOffsetChange(offset + limit)} aria-label={t("nextPage")}><ChevronRight className="h-4 w-4" /></Button></Tooltip>
+	</div>;
+}
+
+export function MessageListRow({
+	message,
+	config,
+	selected,
+	onSelectedChange,
+	onStarToggle,
+	canSend = false,
+	mailboxLabel,
+	compact = false,
+	timestamp,
+	href,
+	active = false,
+	externalSource,
+}: MessageListRowProps) {
+	const t = useTranslations("messages");
+	const { openDraftComposer } = useCompose();
+	const queryClient = useQueryClient();
+	const [retrying, setRetrying] = useState(false);
+	const [retryConfirmOpen, setRetryConfirmOpen] = useState(false);
+	const unread = message.direction === "inbound" && !message.read;
+	const showRetry = canRecoverMessage(config.folder, message.status, canSend);
+
+	async function runRetry() {
+		setRetryConfirmOpen(false);
+		setRetrying(true);
+		try {
+			await retryMessageDelivery(queryClient, message.id);
+		} finally {
+			setRetrying(false);
+		}
+	}
+
+	const retryButton = showRetry ? (
+		<>
+			<button
+				type="button"
+				onClick={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					setRetryConfirmOpen(true);
+				}}
+				disabled={retrying}
+				className="rounded px-2 py-1 text-xs font-medium text-accent hover:bg-surface-subtle disabled:opacity-50"
+			>
+				{t("retryDelivery")}
+			</button>
+			<ConfirmDialog
+				open={retryConfirmOpen}
+				onOpenChange={setRetryConfirmOpen}
+				title={t("retryDelivery")}
+				// A failure can be ambiguous: the provider may have accepted the
+				// message before the error surfaced. The operator decides whether
+				// to accept that.
+				description={t("retryDeliveryConfirm", { recipient: message.toAddr ?? "" })}
+				confirmLabel={t("retryDelivery")}
+				pending={retrying}
+				onConfirm={runRetry}
+			/>
+		</>
+	) : null;
+	// Flex rather than a fixed grid: the grid gave the subject a `1fr` track that
+	// the mailbox chip and the timestamp could squeeze to zero width on a phone,
+	// which hid the subject entirely. Here the subject owns its own line at
+	// compact widths and the meta cluster is `shrink-0` beside it.
 	const className =
-		`grid min-h-12 w-full grid-cols-[24px_32px_minmax(160px,240px)_1fr_auto_auto] items-center gap-3 px-6 text-left text-sm hover:relative hover:z-10 hover:bg-[#f2f6fc] hover:shadow-sm ${
-			selected ? "bg-blue-50" : ""
+		`flex min-h-12 w-full items-center gap-2 px-4 text-left text-sm sm:gap-3 sm:px-6 hover:relative hover:z-10 hover:bg-surface-subtle hover:shadow-sm ${
+			selected || active ? "bg-accent-muted" : ""
 		}`;
 
 	function handleStarClick(event: React.MouseEvent) {
@@ -55,34 +287,24 @@ function MessageListRow({ message, config, selected, onSelectedChange, onStarTog
 		<button
 			type="button"
 			onClick={handleStarClick}
-			className="flex items-center justify-center p-1 rounded hover:bg-neutral-200"
+			className="flex items-center justify-center p-1 rounded hover:bg-surface-subtle"
 			aria-label={message.starred ? "Unstar" : "Star"}
 		>
 			<Star
-				className={`h-4 w-4 ${message.starred ? "fill-yellow-400 text-yellow-400" : "text-neutral-300"}`}
+				className={`h-4 w-4 ${message.starred ? "fill-warning text-warning" : "text-ink-faint"}`}
 			/>
 		</button>
 	);
 
-	const content = (
-		<>
-			<Icon className="h-4 w-4 text-neutral-300" />
-			<span className={getMessagePartyClassName(message, config.folder)}>
-				{getMessageParty(message, config.folder)}
-			</span>
-			<span className="truncate text-neutral-700">
-				<span className={unread ? "font-bold text-neutral-900" : ""}>
-					{message.subject ?? t("noSubject")}
-				</span>
-				<span className="text-neutral-500"> - {getMessagePreview(message, config.folder)}</span>
-			</span>
-			{config.showRowBadge !== false && (
-				<Badge variant={config.badgeVariant ?? "secondary"}>
-					{getMessageBadge(message, config.folder)}
-				</Badge>
-			)}
-		</>
-	);
+	/**
+	 * Mailbox chip, folder badge, and timestamp. Rendered once — on the sender
+	 * line when compact, at the end of the row otherwise. `compact` comes from a
+	 * media query rather than `sm:hidden` so only one copy exists in the DOM;
+	 * two would be read twice by a screen reader and would make every strict
+	 * `getByText` locator in the suites ambiguous.
+	 */
+	const meta = <MessageRowMeta message={message} config={config} mailboxLabel={mailboxLabel} externalSource={externalSource} timestamp={timestamp} unread={unread} />;
+	const content = <MessageRowContent message={message} config={config} compact={compact} meta={meta} />;
 
 	if (config.folder === "drafts") {
 		return (
@@ -91,13 +313,17 @@ function MessageListRow({ message, config, selected, onSelectedChange, onStarTog
 					type="checkbox"
 					checked={selected}
 					onChange={(event) => onSelectedChange(message.id, event.target.checked)}
-					className="h-4 w-4 rounded border-neutral-300"
+					className="h-4 w-4 shrink-0 rounded border-border-strong"
 					aria-label={t("selectMessage")}
 				/>
-				<button type="button" className="contents text-left" onClick={() => openDraftComposer(message.id)}>
+				{starButton}
+				<button
+					type="button"
+					className="flex min-w-0 flex-1 text-left"
+					onClick={() => openDraftComposer(message.id)}
+				>
 					{content}
 				</button>
-				{starButton}
 			</div>
 		);
 	}
@@ -108,33 +334,66 @@ function MessageListRow({ message, config, selected, onSelectedChange, onStarTog
 				type="checkbox"
 				checked={selected}
 				onChange={(event) => onSelectedChange(message.id, event.target.checked)}
-				className="h-4 w-4 rounded border-neutral-300"
+				className="h-4 w-4 shrink-0 rounded border-border-strong"
 				aria-label={t("selectMessage")}
 			/>
-			<Link href={`${config.hrefPrefix}/${message.id}`} className="contents">
+			{starButton}
+			<Link
+				href={href ?? `${config.hrefPrefix}/${message.id}`}
+				className="flex min-w-0 flex-1"
+				data-message-row-id={message.id}
+				aria-current={active ? "true" : undefined}
+			>
 				{content}
 			</Link>
-			{starButton}
+			{retryButton}
 		</div>
 	);
 }
 
 export function MessageFolderPage({ config }: { config: MessageFolderConfig }) {
 	const t = useTranslations("messages");
-	const { selectedMailbox, isLoading: mailboxesLoading } = useSelectedMailbox();
+	const pathname = usePathname();
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const queryClient = useQueryClient();
+	const {
+		selectedMailbox,
+		mailboxes,
+		scopedMailboxId,
+		allMailboxes,
+		isLoading: mailboxesLoading,
+	} = useSelectedMailbox();
 	const { query } = useMailSearch();
 	const [offset, setOffset] = useState(0);
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [pendingBulkAction, setPendingBulkAction] = useState(false);
 	const [activeLabelId, setActiveLabelId] = useState<string | null>(null);
-	const { data: labels = [] } = useQuery({ queryKey: ["labels"], queryFn: fetchLabels });
-	const { messages, isLoading, total, limit, setMessages } = useMessages(config.folder, selectedMailbox?.id, {
+	const inbox = useInboxFocus(config, () => {
+		setOffset(0);
+		setSelectedIds([]);
+	});
+	const { data: labels = [] } = useQuery({ queryKey: labelKeys.all, queryFn: fetchLabels });
+	const { data: externalSources = [] } = useQuery({
+		queryKey: ["external-accounts", "message-sources"],
+		queryFn: async () => {
+			const response = await authFetch("/api/external-accounts");
+			if (!response.ok) return [];
+			const payload = await parseApiResponse<{ accounts: Array<{ id: string; mailboxId: string; provider: "google" | "microsoft"; externalAddress: string }> }>(response);
+			return payload.accounts;
+		},
+	});
+	// A label view pins its label; the chip row is for narrowing a folder and has
+	// nothing left to narrow once the whole list is one label.
+	const pinnedLabelId = config.labelId ?? null;
+	const effectiveLabelId = pinnedLabelId ?? activeLabelId;
+	const { messages, isLoading, total, limit, setMessages } = useMessages(config.folder, scopedMailboxId, {
 		query,
 		limit: pageSize,
 		offset,
-		labelId: activeLabelId ?? undefined,
+		labelId: effectiveLabelId ?? undefined,
+		focus: inbox.focus,
 	}, !mailboxesLoading);
-	const headerIcons = config.headerIcons ?? [];
 	const hasActiveFilters = !!query.trim();
 	const pageRange = getPageRange(offset, messages.length, total);
 	const selectedMessages = useMemo(
@@ -142,16 +401,78 @@ export function MessageFolderPage({ config }: { config: MessageFolderConfig }) {
 		[messages, selectedIds],
 	);
 	const hasUnreadSelection = selectedMessages.some((message) => !message.read);
-	const allVisibleSelected = messages.length > 0 && messages.every((message) => selectedIds.includes(message.id));
+	// One media-query listener for the whole list rather than one per row.
+	const compact = useMediaQuery(MOBILE_QUERY);
+	const splitDesktop = useMediaQuery("(min-width: 1200px)");
+	const [splitOrientation, setSplitOrientation] = useState<SplitOrientation>("right");
+
+	// Read after mount so the server render and first client render agree.
+	useEffect(() => {
+		setSplitOrientation(parseSplitOrientation(globalThis.localStorage.getItem(SPLIT_ORIENTATION_KEY)));
+	}, []);
+
+	function toggleSplitOrientation() {
+		setSplitOrientation((current) => {
+			const next = current === "right" ? "bottom" : "right";
+			globalThis.localStorage.setItem(SPLIT_ORIENTATION_KEY, next);
+			return next;
+		});
+	}
+	const selectedMessageId = splitDesktop ? parseSelectedMessageId(new URLSearchParams(searchParams.toString())) : null;
+	const [restoreFocusId, setRestoreFocusId] = useState<string | null>(null);
+	// Every row formats against the same instant, so a list cannot show two
+	// different "todays" if it renders across midnight.
+	const renderedAt = useMemo(() => new Date(), [messages]);
+	// Only built in all-mailboxes scope; every row shares one mailbox otherwise.
+	const mailboxLabels = useMemo(
+		() =>
+			new Map(
+				allMailboxes
+					? mailboxes.map((mailbox) => [mailbox.id, `${mailbox.localPart}@${mailbox.hostname}`])
+					: [],
+			),
+		[allMailboxes, mailboxes],
+	);
+	const viewActions = useFolderViewActions({
+		folder: config.folder, mailboxId: scopedMailboxId, query, labelId: effectiveLabelId, focus: inbox.focus,
+		messageIds: messages.map((message) => message.id), selectedIds, total,
+	});
+	const { view, allVisibleSelected, selection } = viewActions;
 
 	useEffect(() => {
 		setOffset(0);
 		setSelectedIds([]);
-	}, [query, selectedMailbox?.id, config.folder, activeLabelId]);
+	}, [query, scopedMailboxId, config.folder, effectiveLabelId]);
 
 	useEffect(() => {
 		setSelectedIds([]);
 	}, [offset]);
+
+	useEffect(() => {
+		if (!restoreFocusId || selectedMessageId) return;
+		document.querySelector<HTMLElement>(`[data-message-row-id="${restoreFocusId}"]`)?.focus();
+		setRestoreFocusId(null);
+	}, [restoreFocusId, selectedMessageId]);
+
+	function desktopMessageHref(messageId: string) {
+		// An id the panel's parser would reject must fall back to the full page —
+		// linking to `?message=` it will ignore turns the row into a dead click.
+		if (!splitDesktop || !isSelectableMessageId(messageId)) {
+			return `${config.hrefPrefix}/${messageId}`;
+		}
+		const next = new URLSearchParams(searchParams.toString());
+		next.set("message", messageId);
+		return `${pathname}?${next.toString()}`;
+	}
+
+	function closeConversation() {
+		if (!selectedMessageId) return;
+		const closingId = selectedMessageId;
+		const next = new URLSearchParams(searchParams.toString());
+		next.delete("message");
+		setRestoreFocusId(closingId);
+		router.push(next.size > 0 ? `${pathname}?${next.toString()}` : pathname, { scroll: false });
+	}
 
 	function updateSelectedMessage(messageId: string, selected: boolean) {
 		setSelectedIds((current) =>
@@ -172,7 +493,7 @@ export function MessageFolderPage({ config }: { config: MessageFolderConfig }) {
 
 		setPendingBulkAction(true);
 		try {
-			await runBulkMessageAction(selectedIds, action);
+			await viewActions.run(action);
 			setSelectedIds([]);
 		} finally {
 			setPendingBulkAction(false);
@@ -184,112 +505,35 @@ export function MessageFolderPage({ config }: { config: MessageFolderConfig }) {
 			current.map((m) => (m.id === messageId ? { ...m, starred } : m)),
 		);
 		try {
-			await authFetch(`/api/messages/${messageId}/starred`, {
+			const response = await authFetch(`/api/messages/${messageId}/starred`, {
 				method: "PATCH",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ starred }),
 			});
+			if (!response.ok) throw new Error("Unable to update starred state");
+			void invalidateMessageQueries(queryClient);
 		} catch {
 			setMessages((current) =>
 				current.map((m) => (m.id === messageId ? { ...m, starred: !starred } : m)),
 			);
 		}
-	}, [setMessages]);
+	}, [queryClient, setMessages]);
 
-	return (
-		<div className="flex h-full flex-col">
-			{labels.length > 0 && (
-				<div className="flex items-center gap-2 border-b border-neutral-100 px-6 py-2">
-					<button
-						type="button"
-						onClick={() => setActiveLabelId(null)}
-						className={`rounded-full px-3 py-0.5 text-xs font-medium transition-colors ${
-							activeLabelId === null
-								? "bg-neutral-800 text-white"
-								: "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-						}`}
-					>
-						All
-					</button>
-					{labels.map((label) => (
-						<button
-							key={label.id}
-							type="button"
-							onClick={() => setActiveLabelId(activeLabelId === label.id ? null : label.id)}
-							className={`flex items-center gap-1.5 rounded-full px-3 py-0.5 text-xs font-medium transition-colors ${
-								activeLabelId === label.id
-									? "bg-neutral-800 text-white"
-									: "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-							}`}
-						>
-							<span
-								className="h-2 w-2 rounded-full flex-shrink-0"
-								style={{ backgroundColor: label.color }}
-							/>
-							{label.name}
-						</button>
-					))}
-				</div>
-			)}
-			<div className="flex h-14 items-center justify-between border-b border-neutral-200 px-6">
-				<div className="flex items-center gap-3 w-full">
-					<Tooltip label={t("selectAll")}>
-						<input
-							type="checkbox"
-							checked={allVisibleSelected}
-							disabled={messages.length === 0}
-							onChange={(event) => toggleAllVisible(event.target.checked)}
-							className="h-4 w-4 rounded border-neutral-300"
-							aria-label={t("selectAll")}
-						/>
-					</Tooltip>
-					{selectedIds.length > 0 ? (
-						<BulkMessageToolbar
-							selectedCount={selectedIds.length}
-							hasUnreadSelection={hasUnreadSelection}
-							onAction={runSelectedAction}
-							onClearSelection={() => setSelectedIds([])}
-							pending={pendingBulkAction}
-						/>
-					) : (
-						null
-					)}
-				</div>
-				{selectedIds.length === 0 && (
-					<div className="flex items-center gap-2 text-neutral-500">
-						<span className="text-xs text-neutral-500 whitespace-nowrap">
-							{t("pageRange", { start: pageRange.start, end: pageRange.end, total: pageRange.total })}
-						</span>
-						<Tooltip label={t("previousPage")}>
-							<Button
-								variant="ghost"
-								size="sm"
-								disabled={offset === 0 || isLoading}
-								onClick={() => setOffset(Math.max(offset - limit, 0))}
-								aria-label={t("previousPage")}
-							>
-								<ChevronLeft className="h-4 w-4" />
-							</Button>
-						</Tooltip>
-						<Tooltip label={t("nextPage")}>
-							<Button
-								variant="ghost"
-								size="sm"
-								disabled={offset + messages.length >= total || isLoading}
-								onClick={() => setOffset(offset + limit)}
-								aria-label={t("nextPage")}
-							>
-								<ChevronRight className="h-4 w-4" />
-							</Button>
-						</Tooltip>
-						{headerIcons.map((HeaderIcon, index) => (
-							<HeaderIcon key={index} className="h-4 w-4" />
-						))}
-					</div>
-				)}
+	const flat = (
+		<>
+			<div className="flex h-14 items-center justify-between border-b border-border px-6">
+				<FolderSelectionControls messageCount={messages.length} allSelected={allVisibleSelected}
+					selectedCount={viewActions.selectedCount} hasUnread={hasUnreadSelection} pending={pendingBulkAction}
+					onToggleAll={toggleAllVisible} onAction={runSelectedAction} onClear={() => setSelectedIds([])} />
+				<FolderPaginationControls hidden={selectedIds.length > 0} splitDesktop={splitDesktop}
+					selectedMessageId={selectedMessageId} orientation={splitOrientation} range={pageRange}
+					offset={offset} limit={limit} messageCount={messages.length} total={total} loading={isLoading}
+					onToggleOrientation={toggleSplitOrientation} onOffsetChange={setOffset} />
 			</div>
 
-			<div className="divide-y divide-neutral-100">
+			<SelectAllInViewBar allVisibleSelected={allVisibleSelected} pageCount={messages.length} total={total}
+				allInView={selection.allInView} onSelectAll={selection.selectAll} onClear={() => setSelectedIds([])} />
+			<div className="divide-y divide-border">
 				{messages.map((message) => (
 					<MessageListRow
 						key={message.id}
@@ -298,15 +542,39 @@ export function MessageFolderPage({ config }: { config: MessageFolderConfig }) {
 						selected={selectedIds.includes(message.id)}
 						onSelectedChange={updateSelectedMessage}
 						onStarToggle={handleStarToggle}
+						canSend={selectedMailbox ? canMailboxSend(selectedMailbox) : false}
+						mailboxLabel={allMailboxes ? mailboxLabels.get(message.mailboxId ?? "") : undefined}
+						externalSource={getExternalSourceBadge(message, externalSources) ?? undefined}
+						compact={compact}
+						timestamp={formatMessageListTime(message.createdAt, renderedAt)}
+						href={desktopMessageHref(message.id)}
+						active={message.id === selectedMessageId}
 					/>
 				))}
-				{isLoading && <p className="px-6 py-4 text-sm text-neutral-500">{t("loading")}</p>}
+				{isLoading && <p className="px-6 py-4 text-sm text-ink-muted">{t("loading")}</p>}
 				{!isLoading && messages.length === 0 && (
-					<p className="px-6 py-4 text-sm text-neutral-500">
+					<p className="px-6 py-4 text-sm text-ink-muted">
 						{hasActiveFilters ? t("noMessagesFilter") : config.emptyText}
 					</p>
 				)}
 			</div>
+		</>
+	);
+
+	const list = (
+		<div className="flex h-full flex-col">
+			<InboxFocusHeader inbox={inbox} showDigest={offset === 0 && !query.trim()} mailboxId={scopedMailboxId ?? null} view={view} grouped={viewActions.groupToggle} />
+			<FolderLabelHeader title={config.title} pinned={!!pinnedLabelId} labels={labels} activeId={activeLabelId} onChange={setActiveLabelId} />
+			<FolderListBody grouped={viewActions.grouped} view={view}>{flat}</FolderListBody>
 		</div>
+	);
+
+	if (!selectedMessageId) return list;
+	return (
+		<ResizableMailPanels
+			list={list}
+			orientation={splitOrientation}
+			detail={<MessageDetailView messageId={selectedMessageId} presentation="panel" onClose={closeConversation} />}
+		/>
 	);
 }

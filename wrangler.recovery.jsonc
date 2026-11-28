@@ -1,0 +1,31 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "lumimail-recovery-20260812",
+	"main": "./worker.ts",
+	"account_id": "00000000000000000000000000000000",
+	"compatibility_date": "2026-07-22",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"workers_dev": true,
+	"routes": [],
+	"assets": { "binding": "ASSETS", "directory": ".open-next/assets" },
+	"images": { "binding": "IMAGES" },
+	"vars": {
+		"CF_ACCOUNT_ID": "00000000000000000000000000000000",
+		"CF_EMAIL_WORKER_NAME": "lumimail-recovery-20260812",
+		"MAIL_PROVIDER": "cloudflare",
+		"PUBLIC_APP_URL": "https://lumimail-recovery-20260812.your-subdomain.workers.dev",
+		"PASSWORD_RESET_FROM": "noreply@invalid.example",
+		"R2_SWEEP_ENABLED": "false",
+		"SEED_ENABLED": "false"
+	},
+	"observability": { "enabled": true },
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "lumimail-staging",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "drizzle/migrations"
+		}
+	],
+	"r2_buckets": [{ "binding": "BUCKET", "bucket_name": "lumimail-raw-staging" }]
+}

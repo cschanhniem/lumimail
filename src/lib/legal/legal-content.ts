@@ -1,0 +1,386 @@
+export type LegalLink = { label: string; href: string };
+
+export type LegalSection = {
+	id: string;
+	title: string;
+	paragraphs?: readonly string[];
+	items?: readonly string[];
+	links?: readonly LegalLink[];
+};
+
+export type LegalDocument = {
+	title: string;
+	summary: string;
+	effectiveDate: string;
+	sections: readonly LegalSection[];
+};
+
+/**
+ * Placeholder operator identity. Self-hosters must replace these values with
+ * their own legal entity, contact address, and public origin before publishing
+ * the privacy policy and terms.
+ */
+export const LEGAL_OPERATOR = {
+	company: "Lumimail",
+	service: "Lumimail",
+	contactEmail: "team@yourdomain.com",
+	origin: "https://mail.yourdomain.com",
+} as const;
+
+const contactLink: LegalLink = {
+	label: LEGAL_OPERATOR.contactEmail,
+	href: `mailto:${LEGAL_OPERATOR.contactEmail}`,
+};
+
+/**
+ * Every Google scope the connection requests, with the plain-language purpose shown in the
+ * privacy policy. A unit test compares this list to the scopes in `oauth-provider.ts` so the
+ * policy cannot drift from what the consent screen asks for.
+ */
+export const googleScopeDisclosures = [
+	{
+		scope: "openid",
+		purpose: "confirms which Google account you are connecting",
+	},
+	{
+		scope: "email",
+		purpose: "reads the email address of that Google account so it can be shown and matched to the connection",
+	},
+	{
+		scope: "https://www.googleapis.com/auth/gmail.readonly",
+		purpose: "reads messages so copies of your Gmail mail can be imported into your Lumimail mailbox",
+	},
+	{
+		scope: "https://www.googleapis.com/auth/gmail.send",
+		purpose: "sends messages that you choose to send from your Gmail address through Lumimail",
+	},
+] as const;
+
+export type HomePurpose = { title: string; sections: readonly LegalSection[] };
+
+/**
+ * Shown on the public home page so a visitor (and Google's reviewers) can see, without signing
+ * in, what the application is for and how it uses Google APIs.
+ */
+export const homePurpose: HomePurpose = {
+	title: "What Lumimail is for",
+	sections: [
+		{
+			id: "shared-email-workspace",
+			title: "A shared email workspace",
+			paragraphs: [
+				`Lumimail is a shared email workspace for teams and small organizations, operated by ${LEGAL_OPERATOR.company}. It lets you receive, read, organize, and send email for your own domains, with mailboxes shared among the people you choose.`,
+			],
+		},
+		{
+			id: "optional-google-connection",
+			title: "Optional Google account connection",
+			paragraphs: [
+				"You can connect a Gmail or Google Workspace account so its mail appears in a Lumimail mailbox and you can send mail from that address inside Lumimail. Lumimail asks Google for read and send access only when you choose to connect, and it never changes or deletes anything in your Gmail account.",
+			],
+		},
+		{
+			id: "what-lumimail-does-not-do",
+			title: "What Lumimail does not do",
+			items: [
+				"Lumimail does not use Google APIs, or data received from them, to create, store, or distribute non-consensual intimate imagery, including AI-generated imagery. Lumimail has no image or video generation features, and its terms prohibit this content.",
+				"Lumimail does not use Google user data for advertising, does not sell it, and does not use it to train AI or machine-learning models.",
+				`${LEGAL_OPERATOR.company} does not read your Google data except with your permission, to investigate abuse or a security incident, or where the law requires it.`,
+			],
+			links: [
+				{ label: "Privacy Policy", href: "/privacy" },
+				{ label: "Terms of Service", href: "/terms" },
+			],
+		},
+	],
+};
+
+export const privacyPolicy: LegalDocument = {
+	title: "Privacy Policy",
+	summary:
+		`How ${LEGAL_OPERATOR.company} collects, uses, stores, and shares information when you use Lumimail, including the Gmail data you choose to connect.`,
+	effectiveDate: "2026-10-02",
+	sections: [
+		{
+			id: "summary",
+			title: "Summary",
+			items: [
+				"Lumimail is an email service. If you choose to connect a Google account, we read your Gmail messages so they appear in a Lumimail mailbox, and we send mail you compose from that Gmail address.",
+				"We access Google data only after you consent, only the data listed below, and only to provide those features.",
+				"We do not sell your data, show advertising, or use Google data to train AI or machine-learning models.",
+				"You can disconnect at any time, and you can ask us to delete your data.",
+			],
+		},
+		{
+			id: "who-we-are",
+			title: "Who we are",
+			paragraphs: [
+				`Lumimail is a multi-tenant email service operated by ${LEGAL_OPERATOR.company} ("we", "us") at ${LEGAL_OPERATOR.origin}. It lets teams receive, read, and send email for their own domains, and optionally connect an existing Google account.`,
+				"In this policy, \"you\" means a person who uses Lumimail. If you use Lumimail through a workspace run by your organization, your organization's administrators also control that workspace's mailboxes and settings.",
+			],
+			links: [contactLink],
+		},
+		{
+			id: "information-we-collect",
+			title: "Information we collect",
+			items: [
+				"Account information: your email address, your name if you provide one, and your password, which is stored only as a salted hash and can never be read back.",
+				"Mail content: the messages, attachments, drafts, labels, and contacts in the mailboxes you use, including the headers, subjects, addresses, and bodies of mail you send and receive.",
+				"Workspace information: your organization, its members and roles, its domains, mailboxes, routing rules, and the settings you configure.",
+				"Security and session records: your sign-in sessions and security events, such as when you signed in or changed a security setting.",
+				"Connected-account data: if you connect a Google account, the data described in the Google user data section below.",
+				"Operational logs: our hosting platform retains service logs. They can include the recipient address of an inbound message that could not be delivered, storage object keys, queue names, and error classifications. They do not include message bodies, subjects, passwords, or access tokens.",
+			],
+		},
+		{
+			id: "google-user-data",
+			title: "Google user data and Gmail access",
+			paragraphs: [
+				"Connecting a Google account is optional and starts only when you choose it. Lumimail asks Google for the following permissions and uses each one only for the purpose shown:",
+			],
+			items: googleScopeDisclosures.map((item) => `${item.scope} — ${item.purpose}.`),
+			links: [
+				{ label: "Google API Services User Data Policy", href: "https://developers.google.com/terms/api-services-user-data-policy" },
+			],
+		},
+		{
+			id: "google-data-accessed",
+			title: "Google data we access",
+			paragraphs: ["If you connect a Google account, Lumimail accesses only the following Google user data:"],
+			items: [
+				"The email address of your Google account, to show it and match it to the connection.",
+				"Message content: for each message we import, its sender, recipients, subject, date, headers, body, and attachments, received from Google as the complete raw message.",
+				"Message metadata: message and thread identifiers, labels (used to place a message in Inbox, Sent, or archive), and the mailbox history position that lets us fetch only what has changed since the last sync.",
+				"Messages you send: the message you compose in Lumimail, which we pass to Google to send from your Gmail address.",
+				"We do not access your Google contacts, calendar, Drive files, photos, or any other Google service.",
+			],
+		},
+		{
+			id: "what-we-do-with-google-data",
+			title: "What we do with Google data",
+			items: [
+				"Import: we copy mail from your Gmail account into the Lumimail mailbox you chose. You select whether to import only new mail or also the last 30 days, and new mail keeps syncing until you disconnect or pause the connection.",
+				"Send: when you compose a message from your connected Gmail address, we send it through Google on your behalf.",
+				"No changes to Gmail: Lumimail never asks for permission to modify, label, move, or delete anything in your Gmail account.",
+				"Storage: your Google refresh credential is encrypted at rest and is never sent to your browser. Imported messages are stored like the rest of your Lumimail mail. If you turn on \"Retain original copies\", we also keep an exact copy of each newly imported message and a checksum of it.",
+				"Who can read imported mail: everyone with read access to the Lumimail mailbox you connect can read the mail imported into it. We show this before you connect.",
+				`Human access: ${LEGAL_OPERATOR.company} does not read your Google data. We access it only if you ask us to help with a specific problem, where needed to investigate abuse or a security incident, or where the law requires it.`,
+				"AI: we do not use Google user data to develop, improve, or train generalized AI or machine-learning models.",
+				"Prohibited content: we do not use Google APIs, or data received from them, to create, store, or distribute non-consensual intimate imagery, including AI-generated imagery.",
+				"Advertising and sale: we do not use Google user data for advertising, and we never sell it.",
+				"Third-party clients you authorize: if you choose to connect an assistant or another client to your Lumimail mailbox (for example through an API key, the MCP integration, or the IMAP and SMTP bridge), that client can read the mail in that mailbox, including imported Gmail mail, to the extent you authorize it.",
+			],
+			paragraphs: [
+				"Lumimail's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements.",
+			],
+		},
+		{
+			id: "optional-mail-classification",
+			title: "Optional AI mail classification",
+			paragraphs: [
+				"With your explicit consent, enabled Jev questions send selected mail to TypeSafe AI for classification. We send the sender, recipient, subject, and up to 8,000 characters of message text. This can include imported Gmail mail. We do not send attachments, HTML, or full threads. Local tagging rules run in Lumimail without sending mail to TypeSafe.",
+				"You can disable automatic classification and cancel pending classification jobs in Mail insights. Your labels and corrections remain in Lumimail. TypeSafe's published policy states that inputs are not used to train or fine-tune models; its retention and processing terms apply to submitted content. We do not promise zero retention by the provider.",
+			],
+			links: [{ label: "TypeSafe privacy policy", href: "https://typesafe.ai/legal/privacy-policy" }],
+		},
+		{
+			id: "how-we-use-information",
+			title: "How we use information",
+			items: [
+				"To provide Lumimail: receive, store, display, search, and send your mail and keep your workspace working.",
+				"To keep the service secure: authenticate you, prevent abuse, and investigate incidents.",
+				"To support you: answer questions you send us and diagnose problems you report.",
+				"To meet legal obligations.",
+			],
+			paragraphs: [
+				"We do not sell your information, we do not show advertising, and we do not build advertising profiles.",
+			],
+		},
+		{
+			id: "who-we-share-with",
+			title: "Who we share information with",
+			items: [
+				"Hosting and infrastructure: Lumimail runs on Cloudflare, which stores and processes data for us as a service provider, including for Workers, D1, R2, Queues, and Email Routing.",
+				"Optional AI classification: TypeSafe processes the bounded email content described above only when you give consent for enabled Jev questions.",
+				"Outbound mail delivery: messages you send are handed to the configured mail provider (Cloudflare Email Sending, or another provider the operator configures) and to the recipients you address.",
+				"Integrations you configure: if you add a webhook, its address receives the sender, recipient, and subject of matching messages; message bodies and attachments are never sent to webhooks. If you enable push notifications, they contain no message content.",
+				"Legal and safety: we may disclose information where the law requires it or to protect the rights, safety, and security of users and the service.",
+				"We do not share your information with anyone else.",
+			],
+		},
+		{
+			id: "retention-and-deletion",
+			title: "Retention and deletion",
+			items: [
+				"Your mail and workspace data are kept until you or your organization's administrators delete them or until the account is closed.",
+				"Raw copies of inbound messages held only for processing are deleted after processing succeeds.",
+				"Disconnect: you can disconnect a connected Google account at any time from Settings, External accounts. Disconnecting stops all access immediately and asks Google to revoke the credential. It never deletes anything in Gmail. Mail already imported stays in your Lumimail mailbox until it is deleted.",
+				"You can also remove Lumimail's access from the Google side at any time.",
+				"To have your account and its data deleted, email us. We will confirm the request and complete deletion within 30 days. Copies in backups can persist for a limited period afterward.",
+			],
+			links: [
+				{ label: "myaccount.google.com/permissions", href: "https://myaccount.google.com/permissions" },
+				contactLink,
+			],
+		},
+		{
+			id: "security",
+			title: "Security",
+			paragraphs: [
+				"Traffic to Lumimail uses HTTPS. Passwords are stored as salted hashes, connected-account credentials are encrypted at rest, and every mailbox, message, and domain is isolated by organization and by your permissions. No system is perfectly secure, so we cannot guarantee absolute security, but we design Lumimail to limit what any one failure could expose.",
+			],
+		},
+		{
+			id: "cookies-and-storage",
+			title: "Cookies and local storage",
+			paragraphs: [
+				"Lumimail sets one strictly necessary session cookie to keep you signed in. Your browser's local storage keeps interface preferences such as your theme and sidebar state. Lumimail does not use advertising cookies, analytics scripts, or third-party trackers.",
+			],
+		},
+		{
+			id: "your-choices-and-rights",
+			title: "Your choices and rights",
+			paragraphs: [
+				"You can view and edit most of your information in Lumimail. Depending on where you live, you may also have the right to access, correct, export, or delete your personal information, to object to or restrict certain processing, and to lodge a complaint with a data protection authority. To use any of these rights, email us.",
+			],
+			links: [contactLink],
+		},
+		{
+			id: "children",
+			title: "Children",
+			paragraphs: [
+				"Lumimail is not directed to children under 16, and we do not knowingly collect personal information from them. If you believe a child has given us information, email us and we will delete it.",
+			],
+		},
+		{
+			id: "changes",
+			title: "Changes to this policy",
+			paragraphs: [
+				"We may update this policy. The effective date above shows when it last changed. If a change materially affects how we handle your information, we will notify you in the service or by email before it takes effect.",
+			],
+		},
+		{
+			id: "contact",
+			title: "Contact",
+			paragraphs: [`${LEGAL_OPERATOR.company}, operator of Lumimail. Questions, requests, and complaints about privacy:`],
+			links: [contactLink],
+		},
+	],
+};
+
+export const termsOfService: LegalDocument = {
+	title: "Terms of Service",
+	summary: `The rules for using Lumimail, the email service operated by ${LEGAL_OPERATOR.company}.`,
+	effectiveDate: "2026-09-30",
+	sections: [
+		{
+			id: "agreement",
+			title: "Agreement",
+			paragraphs: [
+				`These terms are an agreement between you and ${LEGAL_OPERATOR.company} ("we", "us") about your use of Lumimail at ${LEGAL_OPERATOR.origin}. By creating an account or using Lumimail you agree to them and to our Privacy Policy. If you use Lumimail on behalf of an organization, you confirm you may bind it.`,
+			],
+		},
+		{
+			id: "the-service",
+			title: "The service",
+			paragraphs: [
+				"Lumimail lets you receive, read, organize, and send email for domains and mailboxes in a shared workspace, and optionally import and send mail through an existing Google account. We may change, add, or remove features over time.",
+			],
+		},
+		{
+			id: "accounts-and-workspaces",
+			title: "Accounts and workspaces",
+			items: [
+				"Give accurate information and keep your sign-in credentials secret. You are responsible for activity under your account.",
+				"Workspace administrators decide who can access a workspace's mailboxes and settings. Anyone an administrator grants access to a mailbox can read that mailbox.",
+				"Tell us promptly if you believe your account has been accessed without permission.",
+			],
+		},
+		{
+			id: "your-content",
+			title: "Your mail and content",
+			paragraphs: [
+				"You keep all rights in the mail and other content you handle through Lumimail. You give us permission to store, process, and transmit it only as needed to provide the service to you. You are responsible for having the right to send, receive, and store that content.",
+			],
+		},
+		{
+			id: "acceptable-use",
+			title: "Acceptable use",
+			paragraphs: ["Do not use Lumimail to:"],
+			items: [
+				"send spam, bulk unsolicited mail, phishing, or messages intended to deceive;",
+				"distribute malware or content that is unlawful, infringing, or harmful;",
+				"harass or threaten anyone, or violate someone's privacy or rights;",
+				"attack, probe, overload, or circumvent the limits or security of the service or other users;",
+				"create, store, or distribute non-consensual intimate imagery (including AI-generated imagery) or any sexual content involving minors;",
+				"send from an address or domain you are not authorized to use; or",
+				"resell or provide the service to others without our permission.",
+			],
+		},
+		{
+			id: "connected-accounts",
+			title: "Connected Google accounts",
+			items: [
+				"You may connect only a Google account you own or are authorized to use, and you agree to Google's own terms for it.",
+				"Connecting lets Lumimail read your Gmail mail into the chosen Lumimail mailbox and send mail you compose from that address. Lumimail never modifies or deletes mail in your Gmail account.",
+				"Everyone with read access to the Lumimail mailbox you connect can read the imported mail. Connect only to a mailbox where that is acceptable.",
+				"You can disconnect at any time. Details, and how Google data is handled, are in the Privacy Policy.",
+			],
+		},
+		{
+			id: "third-party-services",
+			title: "Third-party services",
+			paragraphs: [
+				"Lumimail depends on services we do not control, including our hosting provider, mail delivery providers, and Google. Their outages, limits, and policies can affect Lumimail, and we are not responsible for them.",
+			],
+		},
+		{
+			id: "availability-and-delivery",
+			title: "Availability, delivery, and backups",
+			paragraphs: [
+				"We work to keep Lumimail available, but we do not promise uninterrupted or error-free service. Email delivery depends on other systems and is not guaranteed. Lumimail is not a backup or archive service: the option to retain original copies of imported mail is not a complete or independently verified backup, so keep your own backups of anything important.",
+			],
+		},
+		{
+			id: "suspension-and-termination",
+			title: "Suspension and termination",
+			paragraphs: [
+				"You may stop using Lumimail at any time and ask us to delete your account. We may suspend or end your access if you break these terms, put the service or others at risk, or if we must by law. We will give notice where we reasonably can.",
+			],
+		},
+		{
+			id: "disclaimers",
+			title: "Disclaimers",
+			paragraphs: [
+				"Lumimail is provided \"as is\" and \"as available\", without warranties of any kind, express or implied, including merchantability, fitness for a particular purpose, and non-infringement, to the extent the law allows.",
+			],
+		},
+		{
+			id: "limitation-of-liability",
+			title: "Limitation of liability",
+			paragraphs: [
+				`To the extent the law allows, ${LEGAL_OPERATOR.company} is not liable for indirect, incidental, special, consequential, or punitive damages, or for lost profits, lost data, or lost mail, and our total liability for any claim relating to Lumimail is limited to the greater of the amount you paid us for Lumimail in the 12 months before the claim and 100 US dollars. Nothing in these terms limits liability that cannot be limited by law.`,
+			],
+		},
+		{
+			id: "governing-law",
+			title: "Governing law",
+			paragraphs: [
+				`These terms are governed by the laws that apply where ${LEGAL_OPERATOR.company} is established, without regard to conflict-of-law rules, and disputes will be handled by the courts with jurisdiction there, unless mandatory consumer law gives you other rights.`,
+			],
+		},
+		{
+			id: "changes",
+			title: "Changes to these terms",
+			paragraphs: [
+				"We may update these terms. The effective date above shows when they last changed. If a change is material, we will notify you in the service or by email before it takes effect. Continued use after a change means you accept it.",
+			],
+		},
+		{
+			id: "contact",
+			title: "Contact",
+			paragraphs: [`${LEGAL_OPERATOR.company}, operator of Lumimail. Questions about these terms:`],
+			links: [contactLink],
+		},
+	],
+};
