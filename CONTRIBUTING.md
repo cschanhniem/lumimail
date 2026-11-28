@@ -90,4 +90,4 @@ Do **not** open public issues for vulnerabilities. See [`SECURITY.md`](./SECURIT
 
 ## License & CLA
 
-Contributions are under **AGPL-3.0**. By contributing you agree to the [Contributor License Agreement](./CLA.md), which keeps copyright consolidated so the project can remain both open source and commercially sustainable.
+Contributions are released under the **MIT** license. By contributing you also agree to the [Contributor License Agreement](./CLA.md), which lets the maintainer keep the project's licensing consistent.

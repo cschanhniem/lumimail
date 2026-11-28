@@ -2,7 +2,7 @@
   "name": "lumimail-imap-bridge",
   "version": "0.1.0",
   "description": "IMAP/SMTP bridge for Lumimail email clients",
-  "license": "AGPL-3.0-or-later",
+  "license": "MIT",
   "author": "Le Viet Hong <vh3969@gmail.com>",
   "main": "src/index.js",
   "scripts": {
